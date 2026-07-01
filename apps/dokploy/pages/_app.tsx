@@ -40,6 +40,17 @@ const MyApp = ({
 			</style>
 			<Head>
 				<title>Dokploy</title>
+				{/* JetBrains Mono for ComputeBay Simple-shell accents (Inter ships via next/font). */}
+				<link rel="preconnect" href="https://fonts.googleapis.com" />
+				<link
+					rel="preconnect"
+					href="https://fonts.gstatic.com"
+					crossOrigin="anonymous"
+				/>
+				<link
+					href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
+					rel="stylesheet"
+				/>
 			</Head>
 			<ThemeProvider
 				attribute="class"

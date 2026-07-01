@@ -20,6 +20,14 @@ export const TRAEFIK_PORT =
 	Number.parseInt(process.env.TRAEFIK_PORT!, 10) || 80;
 export const TRAEFIK_HTTP3_PORT =
 	Number.parseInt(process.env.TRAEFIK_HTTP3_PORT!, 10) || 443;
+// ComputeBay LAN-only entrypoint (spec §5.5). Apps set to "office only" park
+// every domain on `customEntrypoint: "weblan"`, which binds here instead of the
+// public `web` entrypoint. HOST SEAM: on the appliance image this port MUST be
+// published only on the LAN interface, and cloudflared must forward ONLY `web`
+// (:80) — otherwise a "LAN only" app would still be internet-reachable. The
+// entrypoint below makes the routing real; the interface binding is host config.
+export const TRAEFIK_LAN_PORT =
+	Number.parseInt(process.env.TRAEFIK_LAN_PORT!, 10) || 81;
 export const TRAEFIK_VERSION = process.env.TRAEFIK_VERSION || "3.6.7";
 
 export interface TraefikOptions {
@@ -45,6 +53,7 @@ export const initializeStandaloneTraefik = async ({
 		[`${TRAEFIK_PORT}/tcp`]: {},
 		[`${TRAEFIK_SSL_PORT}/tcp`]: {},
 		[`${TRAEFIK_HTTP3_PORT}/udp`]: {},
+		[`${TRAEFIK_LAN_PORT}/tcp`]: {},
 	};
 
 	const portBindings: Record<string, Array<{ HostPort: string }>> = {
@@ -53,6 +62,9 @@ export const initializeStandaloneTraefik = async ({
 		[`${TRAEFIK_HTTP3_PORT}/udp`]: [
 			{ HostPort: TRAEFIK_HTTP3_PORT.toString() },
 		],
+		// HOST SEAM: publish LAN entrypoint on the LAN interface only. Binding to
+		// all interfaces here keeps dev working; the appliance image narrows it.
+		[`${TRAEFIK_LAN_PORT}/tcp`]: [{ HostPort: TRAEFIK_LAN_PORT.toString() }],
 	};
 
 	const enableDashboard = additionalPorts.some(
@@ -180,6 +192,14 @@ export const initializeTraefikService = async ({
 					PublishMode: "host",
 					Protocol: "tcp",
 				},
+				// ComputeBay LAN entrypoint (see TRAEFIK_LAN_PORT). Host image binds
+				// this to the LAN interface; cloudflared forwards only :80.
+				{
+					TargetPort: TRAEFIK_LAN_PORT,
+					PublishedPort: TRAEFIK_LAN_PORT,
+					PublishMode: "host",
+					Protocol: "tcp",
+				},
 
 				...additionalPorts.map((port) => ({
 					TargetPort: port.targetPort,
@@ -296,6 +316,12 @@ export const getDefaultTraefikConfig = () => {
 					},
 				}),
 			},
+			// ComputeBay LAN-only entrypoint. Routers with customEntrypoint "weblan"
+			// bind here; never forwarded by cloudflared, so office-only apps stay off
+			// the internet (spec §5.5).
+			weblan: {
+				address: `:${TRAEFIK_LAN_PORT}`,
+			},
 		},
 		api: {
 			insecure: true,
@@ -351,6 +377,10 @@ export const getDefaultServerTraefikConfig = () => {
 						certResolver: "letsencrypt",
 					},
 				},
+			},
+			// ComputeBay LAN-only entrypoint (see getDefaultTraefikConfig).
+			weblan: {
+				address: `:${TRAEFIK_LAN_PORT}`,
 			},
 		},
 		api: {

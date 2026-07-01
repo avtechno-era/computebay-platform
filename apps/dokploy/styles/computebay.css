@@ -1,0 +1,205 @@
+/*
+ * ComputeBay Simple-shell design tokens + utilities.
+ *
+ * Ported from the approved Claude Design prototype ("ComputeBay Platform.dc.html").
+ * Scoped under `.cb-shell` so it never touches Dokploy's own shadcn theme (the
+ * Advanced shell). Dark mode follows next-themes, which toggles `.dark` on <html>.
+ */
+
+.cb-shell {
+	--cb-bg: #ffffff;
+	--cb-surface: #f8fafc;
+	--cb-surface-2: #f1f5f9;
+	--cb-elevated: #ffffff;
+	--cb-border: #e2e8f0;
+	--cb-border-subtle: #f1f5f9;
+	--cb-border-strong: #cbd5e1;
+	--cb-text: #0f1419;
+	--cb-text-muted: #6b7b8d;
+	--cb-text-subtle: #94a3b8;
+	--cb-brand: #0a3544;
+	--cb-brand-light: #1a5a70;
+	--cb-brand-muted: #e4eff3;
+	--cb-success: #10b981;
+	--cb-warning: #f59e0b;
+	--cb-error: #ef4444;
+	--cb-info: #3b82f6;
+	--cb-shadow-1: 0 1px 3px rgba(15, 20, 25, 0.08);
+	--cb-shadow-2: 0 4px 12px rgba(15, 20, 25, 0.12);
+
+	font-family: "Inter", system-ui, sans-serif;
+	-webkit-font-smoothing: antialiased;
+	background: var(--cb-bg);
+	color: var(--cb-text);
+}
+
+.dark .cb-shell {
+	--cb-bg: #0f1419;
+	--cb-surface: #1a2332;
+	--cb-surface-2: #2a3544;
+	--cb-elevated: #2a3544;
+	--cb-border: #2a3544;
+	--cb-border-subtle: #1a2332;
+	--cb-border-strong: #4a5568;
+	--cb-text: #f8fafc;
+	--cb-text-muted: #94a3b8;
+	--cb-text-subtle: #6b7b8d;
+	--cb-brand: #7dd3c0;
+	--cb-brand-light: #a7e8d9;
+	--cb-brand-muted: #1a5a70;
+	--cb-success: #34d399;
+	--cb-warning: #fbbf24;
+	--cb-error: #f87171;
+	--cb-info: #60a5fa;
+	--cb-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+	--cb-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* Monospace accents (labels, addresses, timestamps). */
+.cb-mono {
+	font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Eyebrow / uppercase label used throughout the design. */
+.cb-eyebrow {
+	font-family: "JetBrains Mono", ui-monospace, monospace;
+	font-weight: 500;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--cb-text-muted);
+}
+
+@keyframes cbPulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.35;
+	}
+}
+.cb-pulse {
+	animation: cbPulse 2.2s ease-in-out infinite;
+}
+
+.cb-row {
+	transition: background 120ms ease;
+}
+.cb-row:hover {
+	background: var(--cb-surface);
+}
+
+.cb-btn {
+	font-family: inherit;
+	cursor: pointer;
+	border: none;
+	background: none;
+	color: inherit;
+	transition:
+		background 120ms ease,
+		border-color 120ms ease,
+		color 120ms ease;
+}
+.cb-btn:hover {
+	background: var(--cb-surface);
+}
+.cb-btn-primary:hover {
+	background: var(--cb-brand-light) !important;
+}
+.cb-btn-danger:hover {
+	background: #fee2e2 !important;
+	color: #991b1b !important;
+	border-color: #fca5a5 !important;
+}
+
+.cb-nav-item {
+	transition:
+		background 120ms ease,
+		color 120ms ease;
+}
+.cb-nav-item:hover {
+	background: var(--cb-surface);
+}
+
+.cb-tab {
+	transition:
+		color 120ms ease,
+		border-color 120ms ease;
+}
+.cb-tab:hover {
+	color: var(--cb-text);
+}
+
+.cb-card-hover {
+	transition:
+		box-shadow 150ms ease,
+		border-color 150ms ease;
+}
+.cb-card-hover:hover {
+	box-shadow: var(--cb-shadow-2);
+	border-color: var(--cb-border-strong);
+}
+
+.cb-radio:hover {
+	border-color: var(--cb-brand) !important;
+	background: var(--cb-surface) !important;
+}
+
+.cb-scroll {
+	scrollbar-width: thin;
+	scrollbar-color: var(--cb-border-strong) transparent;
+}
+.cb-scroll::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+.cb-scroll::-webkit-scrollbar-thumb {
+	background: var(--cb-border-strong);
+	border-radius: 4px;
+}
+.cb-scroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.cb-fade {
+	animation: cbFade 220ms ease-out;
+}
+@keyframes cbFade {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+/* Pill toggle knob used for boolean settings. */
+.cb-toggle-track {
+	position: relative;
+	width: 32px;
+	height: 18px;
+	background: var(--cb-border-strong);
+	border-radius: 9999px;
+	transition: background 160ms ease;
+	flex-shrink: 0;
+}
+.cb-toggle-track[data-on="true"] {
+	background: var(--cb-brand);
+}
+.cb-toggle-knob {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 14px;
+	height: 14px;
+	background: #fff;
+	border-radius: 50%;
+	transition: transform 160ms cubic-bezier(0.2, 0.7, 0.2, 1);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.cb-toggle-track[data-on="true"] .cb-toggle-knob {
+	transform: translateX(14px);
+}

@@ -5,6 +5,7 @@ import {
 	createDefaultTraefikConfig,
 	IS_CLOUD,
 	initCancelDeployments,
+	initComputeBayTunnel,
 	initCronJobs,
 	initEnterpriseBackupCronJobs,
 	initializeNetwork,
@@ -66,6 +67,9 @@ void app.prepare().then(async () => {
 			await initCancelDeployments();
 			await initVolumeBackupsCronJobs();
 			await sendDokployRestartNotifications();
+			// ComputeBay: bring cloudflared up (if activated) + start the broker
+			// heartbeat. No-op on self-host / not-yet-activated appliances.
+			await initComputeBayTunnel();
 		}
 		await initEnterpriseBackupCronJobs();
 

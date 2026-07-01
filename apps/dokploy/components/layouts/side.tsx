@@ -90,6 +90,7 @@ import { DialogAction } from "../shared/dialog-action";
 import { Logo } from "../shared/logo";
 import { Button } from "../ui/button";
 import { TimeBadge } from "../ui/time-badge";
+import { ShellToggle } from "./shell-mode";
 import { UpdateServerButton } from "./update-server";
 import { UserNav } from "./user-nav";
 
@@ -1204,7 +1205,11 @@ export default function Page({ children }: Props) {
 									</BreadcrumbList>
 								</Breadcrumb>
 							</div>
-							{!isCloud && <TimeBadge />}
+							<div className="flex items-center gap-3">
+								{/* Always let ComputeBay users get back to the Simple shell (spec §5.13). */}
+								{!isCloud && <ShellToggle />}
+								{!isCloud && <TimeBadge />}
+							</div>
 						</div>
 					</header>
 				)}

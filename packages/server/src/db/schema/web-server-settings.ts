@@ -100,6 +100,52 @@ export const webServerSettings = pgTable("webServerSettings", {
 	remoteServersOnly: boolean("remoteServersOnly").notNull().default(false),
 	// Auth Configuration (self-hosted only)
 	enforceSSO: boolean("enforceSSO").notNull().default(false),
+	// ComputeBay Fork Configuration (single-node appliance only).
+	// Drives the Simple/Advanced shell, tier behaviour, and tunnel state from a
+	// single binary — see "Dokploy Fork - Feature Specification.md" §3, §5.13.
+	computeBay: jsonb("computeBay")
+		.$type<{
+			// "managed" (Avante-brokered tunnel + support) or "self-host" (BYO Cloudflare).
+			tier: "managed" | "self-host";
+			businessName: string | null;
+			timezone: string;
+			// Which shell an account opens in, and whether the header toggle is offered.
+			defaultView: "simple" | "advanced";
+			showAdvancedToggle: boolean;
+			// Managed-tier Avante support access (§5.9).
+			supportAccessPaused: boolean;
+			supportEmailOptIn: boolean;
+			// Populated at activation (§5.1 / §5.5). Null until the appliance is activated.
+			wildcardDomain: string | null;
+			customerSlug: string | null;
+			brokerBaseUrl: string | null;
+			tunnelConfigured: boolean;
+			// Managed-tier tunnel wiring, set at activation (Phase 3). Secrets are
+			// held alongside config here, as this table already does for SSH keys and
+			// the metrics token. `tunnelToken` runs cloudflared; `deviceToken`
+			// authenticates broker heartbeat/route/health calls; `tunnelId` is the
+			// broker's Cloudflare tunnel id, kept for reference/health lookups.
+			tunnelToken: string | null;
+			deviceToken: string | null;
+			tunnelId: string | null;
+		}>()
+		.notNull()
+		.default({
+			tier: "self-host",
+			businessName: null,
+			timezone: "Asia/Manila",
+			defaultView: "simple",
+			showAdvancedToggle: true,
+			supportAccessPaused: false,
+			supportEmailOptIn: false,
+			wildcardDomain: null,
+			customerSlug: null,
+			brokerBaseUrl: null,
+			tunnelConfigured: false,
+			tunnelToken: null,
+			deviceToken: null,
+			tunnelId: null,
+		}),
 	// Cache Cleanup Configuration
 	cleanupCacheApplications: boolean("cleanupCacheApplications")
 		.notNull()
@@ -121,6 +167,42 @@ export const webServerSettingsRelations = relations(
 
 const createSchema = createInsertSchema(webServerSettings, {
 	id: z.string().min(1),
+});
+
+// ComputeBay fork configuration (see the `computeBay` column above).
+export const computeBayConfigSchema = z.object({
+	tier: z.enum(["managed", "self-host"]),
+	businessName: z.string().nullable(),
+	timezone: z.string(),
+	defaultView: z.enum(["simple", "advanced"]),
+	showAdvancedToggle: z.boolean(),
+	supportAccessPaused: z.boolean(),
+	supportEmailOptIn: z.boolean(),
+	wildcardDomain: z.string().nullable(),
+	customerSlug: z.string().nullable(),
+	brokerBaseUrl: z.string().nullable(),
+	tunnelConfigured: z.boolean(),
+	tunnelToken: z.string().nullable(),
+	deviceToken: z.string().nullable(),
+	tunnelId: z.string().nullable(),
+});
+
+// The "Interface" settings subsection (§5.13) — the only computeBay fields a
+// non-technical owner edits directly.
+export const apiUpdateInterface = z.object({
+	defaultView: z.enum(["simple", "advanced"]),
+	showAdvancedToggle: z.boolean(),
+});
+
+// Managed-tier support-access controls (§5.9).
+export const apiUpdateSupportAccess = z.object({
+	supportAccessPaused: z.boolean().optional(),
+	supportEmailOptIn: z.boolean().optional(),
+});
+
+export const apiUpdateBusinessProfile = z.object({
+	businessName: z.string().max(120).nullable().optional(),
+	timezone: z.string().optional(),
 });
 
 export const apiUpdateWebServerSettings = createSchema.partial().extend({
@@ -161,6 +243,7 @@ export const apiUpdateWebServerSettings = createSchema.partial().extend({
 	cleanupCacheOnCompose: z.boolean().optional(),
 	remoteServersOnly: z.boolean().optional(),
 	enforceSSO: z.boolean().optional(),
+	computeBay: computeBayConfigSchema.optional(),
 });
 
 export const apiAssignDomain = z

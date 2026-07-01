@@ -1,0 +1,1 @@
+ALTER TABLE "webServerSettings" ADD COLUMN "computeBay" jsonb DEFAULT '{"tier":"self-host","businessName":null,"timezone":"Asia/Manila","defaultView":"simple","showAdvancedToggle":true,"supportAccessPaused":false,"supportEmailOptIn":false,"wildcardDomain":null,"customerSlug":null,"brokerBaseUrl":null,"tunnelConfigured":false}'::jsonb NOT NULL;

@@ -1,4 +1,6 @@
+import { IS_CLOUD } from "@dokploy/server/constants";
 import { validateRequest } from "@dokploy/server/lib/auth";
+import { getComputeBayConfig } from "@dokploy/server/services/computebay-config";
 import { createServerSideHelpers } from "@trpc/react-query/server";
 import type { GetServerSidePropsContext } from "next";
 import type { ReactElement } from "react";
@@ -28,6 +30,17 @@ export async function getServerSideProps(ctx: GetServerSidePropsContext) {
 				destination: "/",
 			},
 		};
+	}
+
+	// ComputeBay appliance: honour the account's default view (spec §5.13). Cloud
+	// keeps the upstream Dokploy home.
+	if (!IS_CLOUD) {
+		const computeBay = await getComputeBayConfig();
+		if (computeBay.defaultView === "simple") {
+			return {
+				redirect: { permanent: false, destination: "/dashboard/simple/home" },
+			};
+		}
 	}
 
 	const helpers = createServerSideHelpers({
