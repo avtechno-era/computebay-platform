@@ -1212,6 +1212,13 @@
       "when": 1782888053781,
       "tag": "0172_computebay_config",
       "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1782945677477,
+      "tag": "0173_computebay_support_session",
+      "breakpoints": true
     }
   ]
 }

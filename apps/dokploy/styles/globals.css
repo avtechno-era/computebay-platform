@@ -1,9 +1,9 @@
+/* ComputeBay Simple-shell design tokens (scoped under .cb-shell). */
+@import "./computebay.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* ComputeBay Simple-shell design tokens (scoped under .cb-shell). */
-@import "./computebay.css";
 
 @layer base {
 	:root {

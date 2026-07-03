@@ -1,13 +1,20 @@
 import { db } from "@dokploy/server/db";
 import { environments, projects } from "@dokploy/server/db/schema";
-import { manageDomain } from "@dokploy/server/utils/traefik/domain";
+import { manageDomain, removeDomain } from "@dokploy/server/utils/traefik/domain";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { findApplicationById } from "./application";
 import {
+	provisionCustomRoute,
+	revokeCustomRoute,
+} from "./computebay-activation";
+import { getComputeBayConfig } from "./computebay-config";
+import {
+	createDomain,
 	findDomainById,
 	findDomainsByApplicationId,
 	findDomainsByComposeId,
+	removeDomainById,
 	updateDomainById,
 } from "./domain";
 import { createProject } from "./project";
@@ -240,4 +247,141 @@ export const setAppExposure = async (params: {
 	}
 
 	return { needsRedeploy: true };
+};
+
+// --- Custom domains (§5.5 advanced action) ---------------------------------
+
+export interface CustomDomain {
+	domainId: string;
+	host: string;
+	https: boolean;
+}
+
+/** Normalise a user-entered hostname to a bare, lower-cased host. */
+const normalizeHost = (raw: string): string =>
+	raw
+		.trim()
+		.toLowerCase()
+		.replace(/^https?:\/\//, "")
+		.replace(/^\*\./, "")
+		.replace(/[/.]+$/, "")
+		.split("/")[0]!;
+
+/**
+ * A custom domain is any host the owner brought that isn't under the appliance's
+ * own wildcard (e.g. `shop.acme.com` rather than `wordpress.acme.computebay.app`).
+ * When no wildcard is configured yet, every host is treated as custom.
+ */
+const isCustomHost = (host: string, wildcardDomain: string | null): boolean =>
+	!wildcardDomain || !host.endsWith(wildcardDomain);
+
+const domainListFor = (id: string, kind: "application" | "compose") =>
+	kind === "application"
+		? findDomainsByApplicationId(id)
+		: findDomainsByComposeId(id);
+
+/** The custom domains (owner-supplied hosts) attached to one app. */
+export const listCustomDomains = async (params: {
+	id: string;
+	kind: "application" | "compose";
+}): Promise<CustomDomain[]> => {
+	const config = await getComputeBayConfig();
+	const domainList = await domainListFor(params.id, params.kind);
+	return domainList
+		.filter((d) => isCustomHost(d.host, config.wildcardDomain))
+		.map((d) => ({ domainId: d.domainId, host: d.host, https: d.https }));
+};
+
+/**
+ * Point an owner-supplied domain (e.g. `shop.acme.com`) at one of the appliance's
+ * apps (spec §5.5). We clone the routing (port / service / path) from the app's
+ * existing address so the app answers on the new host with no port questions, then:
+ *
+ *  - **managed:** ask the broker to add the DNS/ingress for the host (the broker
+ *    owns the Cloudflare zone), so it "just works".
+ *  - **self-host:** the owner controls their own DNS, so we only create the route;
+ *    the UI shows the CNAME they must point at the appliance's wildcard host.
+ *
+ * Cloudflare terminates TLS, so custom domains use `certificateType: "none"` and
+ * ride the public `web` entrypoint — never the Simple SSL surface (§5.5).
+ */
+export const addCustomDomain = async (params: {
+	id: string;
+	kind: "application" | "compose";
+	host: string;
+}): Promise<{ needsRedeploy: boolean }> => {
+	const host = normalizeHost(params.host);
+	if (!host || !host.includes(".")) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message: "Enter a full domain, like shop.yourbusiness.com",
+		});
+	}
+
+	const domainList = await domainListFor(params.id, params.kind);
+	if (domainList.some((d) => d.host === host)) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message: "That domain is already pointed at this app",
+		});
+	}
+
+	// Clone routing from the app's existing address so the owner never sees a port.
+	const template = domainList[0];
+	if (!template) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message:
+				"Give this app its address first, then add a custom domain to it.",
+		});
+	}
+
+	await createDomain({
+		host,
+		port: template.port,
+		path: template.path,
+		serviceName: template.serviceName,
+		https: false,
+		certificateType: "none",
+		customEntrypoint: null,
+		domainType: params.kind === "compose" ? "compose" : "application",
+		applicationId: params.kind === "application" ? params.id : undefined,
+		composeId: params.kind === "compose" ? params.id : undefined,
+	});
+
+	// Managed appliances let the broker publish the DNS; self-host owners do it
+	// themselves (provisionCustomRoute no-ops for non-broker tiers via the guard).
+	const config = await getComputeBayConfig();
+	if (config.tier === "managed") {
+		await provisionCustomRoute(host);
+	}
+
+	// Applications re-render Traefik config on create; compose carries its routing
+	// as labels, so the caller must redeploy for the new host to take effect.
+	return { needsRedeploy: params.kind === "compose" };
+};
+
+/** Remove a custom domain from an app and withdraw its public DNS (managed). */
+export const removeCustomDomain = async (params: {
+	domainId: string;
+}): Promise<{ needsRedeploy: boolean; composeId: string | null }> => {
+	const domain = await findDomainById(params.domainId);
+	const host = domain.host;
+
+	await removeDomainById(params.domainId);
+
+	if (domain.applicationId) {
+		const application = await findApplicationById(domain.applicationId);
+		await removeDomain(application, domain.uniqueConfigKey);
+	}
+
+	const config = await getComputeBayConfig();
+	if (config.tier === "managed") {
+		await revokeCustomRoute(host);
+	}
+
+	return {
+		needsRedeploy: !!domain.composeId,
+		composeId: domain.composeId ?? null,
+	};
 };

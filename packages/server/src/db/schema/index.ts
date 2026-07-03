@@ -37,6 +37,7 @@ export * from "./session";
 export * from "./shared";
 export * from "./ssh-key";
 export * from "./sso";
+export * from "./support-session";
 export * from "./tag";
 export * from "./user";
 export * from "./utils";

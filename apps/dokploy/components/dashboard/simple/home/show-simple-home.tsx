@@ -1,5 +1,5 @@
 "use client";
-import { AlertOctagon } from "lucide-react";
+import { AlertOctagon, ArrowRight } from "lucide-react";
 import { useRouter } from "next/router";
 import { api } from "@/utils/api";
 import { useApplianceHealth } from "../../../layouts/simple/health";
@@ -89,6 +89,13 @@ export const ShowSimpleHome = () => {
 	const resources = useApplianceResources();
 
 	const isManaged = config?.tier === "managed";
+
+	// Honest public-reachability status from the broker (§5.6). Managed only —
+	// self-host has no broker to ask, so we fall back to the stored tunnel flag.
+	const { data: tunnelHealth } = api.computebay.tunnelHealth.useQuery(undefined, {
+		enabled: isManaged,
+		refetchInterval: 60_000,
+	});
 	const businessName = config?.businessName?.trim();
 	const now = new Date();
 	const greeting = greetingForHour(now.getHours());
@@ -115,7 +122,36 @@ export const ShowSimpleHome = () => {
 			? "All your apps are running normally."
 			: "Open the app to see what's wrong and restart it.";
 
-	const tunnelConnected = config?.tunnelConfigured === true;
+	// Prefer the broker's honest health when we have it; otherwise reflect the
+	// stored config so self-host and pre-heartbeat appliances still read sensibly.
+	const tunnelConfigured = config?.tunnelConfigured === true;
+	const tunnelState: {
+		label: string;
+		live: boolean;
+		tone: "success" | "warning" | "subtle";
+	} = (() => {
+		if (isManaged && tunnelHealth?.configured) {
+			switch (tunnelHealth.status) {
+				case "healthy":
+					return { label: "Connected", live: true, tone: "success" };
+				case "degraded":
+					return { label: "Reconnecting", live: false, tone: "warning" };
+				case "down":
+					return { label: "Offline", live: false, tone: "warning" };
+				default:
+					break;
+			}
+		}
+		return tunnelConfigured
+			? { label: "Connected", live: true, tone: "success" }
+			: { label: "Not set up", live: false, tone: "subtle" };
+	})();
+	const tunnelDotColor =
+		tunnelState.tone === "success"
+			? "var(--cb-success)"
+			: tunnelState.tone === "warning"
+				? "var(--cb-warning)"
+				: "var(--cb-text-subtle)";
 
 	const statCell = (label: string, body: React.ReactNode, last?: boolean) => (
 		<div
@@ -214,7 +250,52 @@ export const ShowSimpleHome = () => {
 				</div>
 			</div>
 
-			{/* Health panel */}
+			{/* Finish-setup banner: shown until the appliance has an internet tunnel.
+				    Apps already work on the LAN, so this is an invitation, not a block. */}
+				{config && config.tunnelConfigured !== true && (
+					<button
+						type="button"
+						className="cb-card-hover"
+						onClick={() => router.push("/dashboard/simple/setup")}
+						style={{
+							marginTop: 20,
+							width: "100%",
+							textAlign: "left",
+							display: "flex",
+							alignItems: "center",
+							gap: 14,
+							border: "1px solid var(--cb-brand)",
+							borderRadius: 8,
+							background: "var(--cb-brand-muted)",
+							padding: "16px 20px",
+							cursor: "pointer",
+						}}
+					>
+						<div style={{ flex: 1 }}>
+							<div
+								style={{ fontWeight: 600, fontSize: 14, color: "var(--cb-text)" }}
+							>
+								Finish setting up your appliance
+							</div>
+							<div
+								style={{
+									fontSize: 12.5,
+									color: "var(--cb-text-muted)",
+									marginTop: 2,
+								}}
+							>
+								Connect it to the internet so your apps get a public address.
+								Your apps already work on your office network.
+							</div>
+						</div>
+						<ArrowRight
+							size={18}
+							style={{ color: "var(--cb-brand)", flexShrink: 0 }}
+						/>
+					</button>
+				)}
+
+				{/* Health panel */}
 			<div
 				style={{
 					marginTop: 24,
@@ -290,14 +371,12 @@ export const ShowSimpleHome = () => {
 						<>
 							<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
 								<span
-									className={tunnelConnected ? "cb-pulse" : undefined}
+									className={tunnelState.live ? "cb-pulse" : undefined}
 									style={{
 										width: 8,
 										height: 8,
 										borderRadius: "50%",
-										background: tunnelConnected
-											? "var(--cb-success)"
-											: "var(--cb-text-subtle)",
+										background: tunnelDotColor,
 									}}
 								/>
 								<span
@@ -307,7 +386,7 @@ export const ShowSimpleHome = () => {
 										color: "var(--cb-text)",
 									}}
 								>
-									{tunnelConnected ? "Connected" : "Not set up"}
+									{tunnelState.label}
 								</span>
 							</div>
 							<div

@@ -45,6 +45,7 @@ import { serverRouter } from "./routers/server";
 import { settingsRouter } from "./routers/settings";
 import { sshRouter } from "./routers/ssh-key";
 import { stripeRouter } from "./routers/stripe";
+import { supportSessionRouter } from "./routers/support-session";
 import { swarmRouter } from "./routers/swarm";
 import { tagRouter } from "./routers/tag";
 import { userRouter } from "./routers/user";
@@ -106,6 +107,7 @@ export const appRouter = createTRPCRouter({
 	environment: environmentRouter,
 	tag: tagRouter,
 	patch: patchRouter,
+	supportSession: supportSessionRouter,
 });
 
 // export type definition of API

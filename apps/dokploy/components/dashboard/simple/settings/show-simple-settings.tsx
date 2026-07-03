@@ -79,6 +79,14 @@ export const ShowSimpleSettings = () => {
 
 	const isManaged = config?.tier === "managed";
 
+	const { data: supportStatus } = api.supportSession.status.useQuery(undefined, {
+		enabled: isManaged,
+	});
+	const { data: supportSessions } = api.supportSession.list.useQuery(
+		{ limit: 10 },
+		{ enabled: isManaged },
+	);
+
 	const saveInterface = async (
 		next: Partial<{
 			defaultView: "simple" | "advanced";
@@ -389,6 +397,10 @@ export const ShowSimpleSettings = () => {
 			</Card>
 
 			{/* Network */}
+			{/* Deferred seam (Phase 5): mDNS `computebay.local` discovery so the
+			    appliance is reachable by name on the office LAN without knowing its IP.
+			    That's a host/network-stack concern (avahi/Bonjour on the appliance
+			    image), not Dokploy code — tracked here, built with the host image. */}
 			<Card title="Network">
 				<div
 					style={{
@@ -560,16 +572,154 @@ export const ShowSimpleSettings = () => {
 							}
 						/>
 					</div>
+					{/* Deferred-surface stub (Phase 5, §5.9): a first-class "request
+					    support" flow (ticket + notify Avante) lands later. For now this
+					    points the owner at the existing support channel. */}
 					<div
 						style={{
-							padding: "16px 20px",
-							fontSize: 13,
-							color: "var(--cb-text-muted)",
+							padding: "14px 20px",
+							display: "flex",
+							alignItems: "center",
+							gap: 16,
+							borderBottom: "1px solid var(--cb-border-subtle)",
 						}}
 					>
-						Recent support sessions will appear here.{" "}
-						{/* Phase 4: support_session table */}
-						None yet.
+						<div style={{ flex: 1 }}>
+							<div
+								style={{
+									fontWeight: 500,
+									fontSize: 13,
+									color: "var(--cb-text)",
+								}}
+							>
+								Need a hand?
+							</div>
+							<div
+								style={{
+									fontSize: 12,
+									color: "var(--cb-text-muted)",
+									marginTop: 2,
+								}}
+							>
+								Ask Avante to take a look. Make sure access is set to “Allowed”
+								above first.
+							</div>
+						</div>
+						<button
+							type="button"
+							className="cb-btn"
+							onClick={() =>
+								toast(
+									"Contact Avante support and we'll connect while access is allowed.",
+								)
+							}
+							style={{
+								padding: "8px 14px",
+								border: "1px solid var(--cb-border)",
+								borderRadius: 6,
+								fontWeight: 500,
+								fontSize: 12,
+								color: "var(--cb-text)",
+							}}
+						>
+							Request support
+						</button>
+					</div>
+					<div style={{ padding: "8px 20px 16px" }}>
+						<div
+							style={{
+								fontSize: 11,
+								fontWeight: 600,
+								letterSpacing: ".04em",
+								textTransform: "uppercase",
+								color: "var(--cb-text-muted)",
+								padding: "8px 0",
+							}}
+						>
+							Recent support sessions
+						</div>
+						{supportSessions && supportSessions.sessions.length > 0 ? (
+							supportSessions.sessions.map((s) => {
+								const start = new Date(s.startedAt);
+								const end = s.endedAt ? new Date(s.endedAt) : null;
+								const durationMin = end
+									? Math.max(
+											1,
+											Math.round((end.getTime() - start.getTime()) / 60000),
+										)
+									: null;
+								return (
+									<div
+										key={s.id}
+										style={{
+											display: "flex",
+											alignItems: "center",
+											gap: 12,
+											padding: "10px 0",
+											borderTop: "1px solid var(--cb-border-subtle)",
+										}}
+									>
+										<span
+											style={{
+												width: 8,
+												height: 8,
+												borderRadius: "50%",
+												flexShrink: 0,
+												background:
+													s.status === "active"
+														? "var(--cb-success)"
+														: "var(--cb-border-strong)",
+											}}
+										/>
+										<div style={{ flex: 1, minWidth: 0 }}>
+											<div style={{ fontSize: 13, color: "var(--cb-text)" }}>
+												{start.toLocaleString()}
+											</div>
+											{s.reason && (
+												<div
+													style={{
+														fontSize: 12,
+														color: "var(--cb-text-muted)",
+														marginTop: 2,
+													}}
+												>
+													{s.reason}
+													{s.ticketRef ? ` · ${s.ticketRef}` : ""}
+												</div>
+											)}
+										</div>
+										<div
+											className="cb-mono"
+											style={{
+												fontSize: 11,
+												color:
+													s.status === "active"
+														? "var(--cb-success)"
+														: "var(--cb-text-muted)",
+											}}
+										>
+											{s.status === "active"
+												? "Active now"
+												: durationMin
+													? `${durationMin} min`
+													: "Ended"}
+										</div>
+									</div>
+								);
+							})
+						) : (
+							<div
+								style={{
+									fontSize: 13,
+									color: "var(--cb-text-muted)",
+									padding: "4px 0",
+								}}
+							>
+								{supportStatus?.lastSessionAt
+									? "No recent sessions."
+									: "Avante hasn't connected yet."}
+							</div>
+						)}
 					</div>
 				</Card>
 			)}

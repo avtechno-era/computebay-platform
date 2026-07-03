@@ -190,6 +190,21 @@ export const ShowSimpleBackups = () => {
 				))}
 			</div>
 
+			{/* Deferred-surface stub (Phase 5): USB drives, office network shares
+			    (SMB/NFS), and Google Drive are planned backup destinations. Only S3
+			    cloud storage is wired today, so we set expectations honestly here. */}
+			<div
+				style={{
+					fontSize: 12,
+					color: "var(--cb-text-muted)",
+					marginTop: -22,
+					marginBottom: 32,
+				}}
+			>
+				Backing up to a USB drive, an office network share, or Google Drive is
+				coming in a later update.
+			</div>
+
 			<div
 				style={{
 					marginTop: 8,

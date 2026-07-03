@@ -10,9 +10,12 @@ import {
 	Globe,
 	KeyRound,
 	LayoutGrid,
+	Link2,
+	Plus,
 	RotateCw,
 	Trash2,
 	Wifi,
+	X,
 } from "lucide-react";
 import { useRouter } from "next/router";
 import { useState } from "react";
@@ -40,16 +43,25 @@ export const ShowAppDetail = ({ appId }: { appId: string }) => {
 	const { setMode } = useShellMode();
 	const utils = api.useUtils();
 	const { data: apps } = api.computebay.listApps.useQuery();
+	const { data: config } = api.computebay.getConfig.useQuery();
 	const reloadApp = api.application.reload.useMutation();
 	const redeployCompose = api.compose.redeploy.useMutation();
 	const deleteApp = api.application.delete.useMutation();
 	const deleteCompose = api.compose.delete.useMutation();
 	const setExposure = api.computebay.setExposure.useMutation();
+	const addCustomDomain = api.computebay.addCustomDomain.useMutation();
+	const removeCustomDomain = api.computebay.removeCustomDomain.useMutation();
 
 	const [advOpen, setAdvOpen] = useState(false);
 	const [exposureConfirm, setExposureConfirm] = useState(false);
+	const [customHost, setCustomHost] = useState("");
 
 	const app = apps?.find((a) => a.id === appId);
+
+	const { data: customDomains } = api.computebay.customDomains.useQuery(
+		{ id: appId, kind: app?.kind ?? "application" },
+		{ enabled: !!app },
+	);
 
 	if (!app) {
 		return (
@@ -181,6 +193,36 @@ export const ShowAppDetail = ({ appId }: { appId: string }) => {
 				{value === "public" ? "Anyone with the link" : "Just this office"}
 			</button>
 		);
+	};
+
+	// Custom domains (spec §5.5 advanced action).
+	const isSelfHost = config?.tier === "self-host";
+	const submitCustomDomain = async () => {
+		const host = customHost.trim();
+		if (!host || addCustomDomain.isPending) return;
+		try {
+			await addCustomDomain.mutateAsync({ id: app.id, kind: app.kind, host });
+			setCustomHost("");
+			toast.success(`${host} is now pointing at ${app.name}`);
+			await utils.computebay.customDomains.invalidate();
+			await utils.computebay.listApps.invalidate();
+		} catch (e) {
+			toast.error(
+				e instanceof Error ? e.message : "Couldn't add that domain",
+			);
+		}
+	};
+	const deleteCustomDomain = async (domainId: string, host: string) => {
+		if (!window.confirm(`Remove ${host}? It will stop pointing at this app.`))
+			return;
+		try {
+			await removeCustomDomain.mutateAsync({ domainId });
+			toast.success(`${host} removed`);
+			await utils.computebay.customDomains.invalidate();
+			await utils.computebay.listApps.invalidate();
+		} catch {
+			toast.error("Couldn't remove that domain");
+		}
 	};
 
 	return (
@@ -431,6 +473,175 @@ export const ShowAppDetail = ({ appId }: { appId: string }) => {
 					</div>
 				</div>
 			</section>
+
+			{/* Custom domain (spec §5.5). Only meaningful once the app is public. */}
+			{isPublic && (
+				<section
+					style={{
+						border: "1px solid var(--cb-border)",
+						borderRadius: 8,
+						background: "var(--cb-elevated)",
+						marginBottom: 16,
+					}}
+				>
+					<div
+						style={{
+							padding: "16px 20px",
+							display: "flex",
+							alignItems: "center",
+							gap: 12,
+							borderBottom: "1px solid var(--cb-border-subtle)",
+						}}
+					>
+						<Link2 size={16} style={{ color: "var(--cb-text-muted)" }} />
+						<div style={{ flex: 1 }}>
+							<div
+								style={{
+									fontWeight: 600,
+									fontSize: 13,
+									color: "var(--cb-text)",
+								}}
+							>
+								Use your own domain
+							</div>
+							<div
+								style={{
+									fontSize: 12,
+									color: "var(--cb-text-muted)",
+									marginTop: 2,
+								}}
+							>
+								Point a domain you own — like shop.yourbusiness.com — at this
+								app.
+							</div>
+						</div>
+					</div>
+
+					{/* Existing custom domains */}
+					{customDomains?.map((d) => (
+						<div
+							key={d.domainId}
+							style={{
+								padding: "12px 20px",
+								display: "flex",
+								alignItems: "center",
+								gap: 12,
+								borderBottom: "1px solid var(--cb-border-subtle)",
+							}}
+						>
+							<a
+								className="cb-mono"
+								href={`https://${d.host}`}
+								target="_blank"
+								rel="noreferrer"
+								style={{
+									flex: 1,
+									fontSize: 13,
+									color: "var(--cb-brand)",
+									minWidth: 0,
+									overflow: "hidden",
+									textOverflow: "ellipsis",
+								}}
+							>
+								{d.host}
+							</a>
+							<button
+								type="button"
+								className="cb-btn"
+								onClick={() => deleteCustomDomain(d.domainId, d.host)}
+								title="Remove"
+								style={{
+									display: "flex",
+									alignItems: "center",
+									gap: 5,
+									fontSize: 12,
+									color: "var(--cb-text-muted)",
+									background: "transparent",
+								}}
+							>
+								<X size={13} /> Remove
+							</button>
+						</div>
+					))}
+
+					{/* Add form */}
+					<div style={{ padding: "14px 20px" }}>
+						<div style={{ display: "flex", gap: 8 }}>
+							<input
+								value={customHost}
+								onChange={(e) => setCustomHost(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") void submitCustomDomain();
+								}}
+								placeholder="shop.yourbusiness.com"
+								className="cb-mono"
+								style={{
+									flex: 1,
+									padding: "9px 12px",
+									border: "1px solid var(--cb-border)",
+									borderRadius: 6,
+									background: "var(--cb-bg)",
+									fontSize: 13,
+									color: "var(--cb-text)",
+								}}
+							/>
+							<button
+								type="button"
+								className="cb-btn cb-btn-primary"
+								onClick={() => void submitCustomDomain()}
+								disabled={addCustomDomain.isPending || !customHost.trim()}
+								style={{
+									padding: "9px 14px",
+									background: "var(--cb-brand)",
+									color: "#fff",
+									borderRadius: 6,
+									fontWeight: 500,
+									fontSize: 13,
+									display: "flex",
+									alignItems: "center",
+									gap: 6,
+									opacity:
+										addCustomDomain.isPending || !customHost.trim() ? 0.6 : 1,
+								}}
+							>
+								<Plus size={14} />
+								{addCustomDomain.isPending ? "Adding…" : "Add"}
+							</button>
+						</div>
+						{/* Self-host owners manage their own DNS; managed is automatic. */}
+						{isSelfHost ? (
+							<div
+								style={{
+									fontSize: 12,
+									lineHeight: 1.6,
+									color: "var(--cb-text-muted)",
+									marginTop: 10,
+								}}
+							>
+								After adding it here, create a{" "}
+								<span style={{ fontWeight: 600 }}>CNAME</span> record at your
+								domain provider pointing to{" "}
+								<span className="cb-mono" style={{ color: "var(--cb-text)" }}>
+									{config?.wildcardDomain ?? "your appliance address"}
+								</span>
+								. It can take a few minutes to start working.
+							</div>
+						) : (
+							<div
+								style={{
+									fontSize: 12,
+									lineHeight: 1.6,
+									color: "var(--cb-text-muted)",
+									marginTop: 10,
+								}}
+							>
+								We'll publish it for you automatically. It can take a few
+								minutes to start working.
+							</div>
+						)}
+					</div>
+				</section>
+			)}
 
 			{/* Stats */}
 			<section

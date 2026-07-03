@@ -6,13 +6,15 @@ import {
 } from "@dokploy/server/db/schema";
 import {
 	activateManagedAppliance,
+	activateSelfHostAppliance,
 	getTunnelHealth,
-	provisionCustomRoute,
-	revokeCustomRoute,
 } from "@dokploy/server/services/computebay-activation";
 import {
+	addCustomDomain,
 	ensureDefaultEnvironment,
+	listCustomDomains,
 	listSimpleApps,
+	removeCustomDomain,
 	setAppExposure,
 } from "@dokploy/server/services/computebay-apps";
 import {
@@ -122,7 +124,36 @@ export const computebayRouter = createTRPCRouter({
 				resourceName: "computebay-activation",
 				metadata: { tunnelReady: result.tunnelReady },
 			});
-			return result;
+			// Strip the tunnel/device secrets before they reach the client, same as
+			// getConfig — they only ever live server-side.
+			const { tunnelToken: _t, deviceToken: _d, ...config } = result.config;
+			return { tunnelReady: result.tunnelReady, config };
+		}),
+
+	// Self-host activation (§5.1, second branch): the owner brings their own
+	// Cloudflare API token + domain; the appliance provisions its own tunnel +
+	// wildcard DNS locally and runs cloudflared. No broker, no support/kill switch.
+	// The CF API token is used only for this call and never persisted.
+	activateSelfHost: adminProcedure
+		.input(
+			z.object({
+				cfApiToken: z.string().min(1),
+				domain: z.string().min(1),
+				accountId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			const result = await activateSelfHostAppliance(input);
+			await audit(ctx, {
+				action: "update",
+				resourceType: "settings",
+				resourceName: "computebay-selfhost-activation",
+				metadata: { tunnelReady: result.tunnelReady },
+			});
+			// Strip the tunnel/device secrets before they reach the client, same as
+			// getConfig — they only ever live server-side.
+			const { tunnelToken: _t, deviceToken: _d, ...config } = result.config;
+			return { tunnelReady: result.tunnelReady, config };
 		}),
 
 	// Honest public-reachability status from the broker (which owns the Cloudflare
@@ -131,29 +162,93 @@ export const computebayRouter = createTRPCRouter({
 		return await getTunnelHealth();
 	}),
 
-	// Publish/withdraw a custom domain through the appliance's tunnel (§5.5 advanced
-	// action). The broker makes the DNS change; Traefik already routes by Host.
-	provisionCustomDomain: adminProcedure
-		.input(z.object({ hostname: z.string().min(1) }))
+	// Custom domains an owner points at one app (§5.5 advanced action). Read by any
+	// authenticated user so the app detail screen can list them.
+	customDomains: protectedProcedure
+		.input(
+			z.object({
+				id: z.string().min(1),
+				kind: z.enum(["application", "compose"]),
+			}),
+		)
+		.query(async ({ input }) => {
+			return await listCustomDomains(input);
+		}),
+
+	// Attach an owner-supplied domain to an app. Managed appliances have the broker
+	// publish the DNS; self-host owners point their own CNAME at the wildcard host.
+	// Traefik answers on the new Host; compose services redeploy so the label applies.
+	addCustomDomain: adminProcedure
+		.input(
+			z.object({
+				id: z.string().min(1),
+				kind: z.enum(["application", "compose"]),
+				host: z.string().min(1),
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
-			await provisionCustomRoute(input.hostname);
+			await checkServicePermissionAndAccess(ctx, input.id, {
+				domain: ["create"],
+			});
+
+			const { needsRedeploy } = await addCustomDomain(input);
+
 			await audit(ctx, {
 				action: "create",
 				resourceType: "domain",
-				resourceName: `route:${input.hostname}`,
+				resourceId: input.id,
+				resourceName: `custom:${input.host}`,
 			});
+
+			if (needsRedeploy) {
+				const compose = await findComposeById(input.id);
+				const jobData: DeploymentJob = {
+					composeId: input.id,
+					titleLog: "Add custom domain",
+					type: "redeploy",
+					applicationType: "compose",
+					descriptionLog: `Added custom domain ${input.host}`,
+					server: !!compose.serverId,
+				};
+				await myQueue.add(
+					"deployments",
+					{ ...jobData },
+					{ removeOnComplete: true, removeOnFail: true },
+				);
+			}
+
 			return { success: true };
 		}),
 
-	revokeCustomDomain: adminProcedure
-		.input(z.object({ hostname: z.string().min(1) }))
+	removeCustomDomain: adminProcedure
+		.input(z.object({ domainId: z.string().min(1) }))
 		.mutation(async ({ input, ctx }) => {
-			await revokeCustomRoute(input.hostname);
+			const { needsRedeploy, composeId } = await removeCustomDomain(input);
+
 			await audit(ctx, {
 				action: "delete",
 				resourceType: "domain",
-				resourceName: `route:${input.hostname}`,
+				resourceId: input.domainId,
+				resourceName: "custom-domain",
 			});
+
+			if (needsRedeploy && composeId) {
+				const compose = await findComposeById(composeId);
+				const jobData: DeploymentJob = {
+					composeId,
+					titleLog: "Remove custom domain",
+					type: "redeploy",
+					applicationType: "compose",
+					descriptionLog: "Removed a custom domain",
+					server: !!compose.serverId,
+				};
+				await myQueue.add(
+					"deployments",
+					{ ...jobData },
+					{ removeOnComplete: true, removeOnFail: true },
+				);
+			}
+
 			return { success: true };
 		}),
 

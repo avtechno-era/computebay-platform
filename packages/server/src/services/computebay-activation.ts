@@ -2,6 +2,10 @@ import os from "node:os";
 import { TRPCError } from "@trpc/server";
 import { scheduleJob } from "node-schedule";
 import {
+	CloudflareApiError,
+	provisionSelfHostTunnel,
+} from "../setup/cloudflare-api";
+import {
 	initializeCloudflared,
 	isCloudflaredRunning,
 	stopCloudflared,
@@ -11,6 +15,12 @@ import {
 	getComputeBayConfig,
 	updateComputeBayConfig,
 } from "./computebay-config";
+
+// Where the tunnel's single catch-all ingress points: the appliance's Traefik on
+// the shared docker network. Matches the broker's managed-tier ingress target so
+// managed and self-host behave identically once the tunnel is up.
+const APPLIANCE_INGRESS_SERVICE =
+	process.env.APPLIANCE_INGRESS_SERVICE || "http://dokploy-traefik:80";
 
 // Managed-tier activation + the appliance's ongoing broker conversation (Phase 3).
 //
@@ -130,6 +140,80 @@ export const activateManagedAppliance = async (params: {
 	// owner knows the public address isn't live yet.
 	try {
 		await initializeCloudflared(activation.tunnel_token);
+	} catch {
+		return { config, tunnelReady: false };
+	}
+
+	return { config, tunnelReady: true };
+};
+
+// --- Self-host activation (no broker) ---------------------------------------
+
+// Strip protocol, wildcard prefix, and trailing punctuation so the owner can
+// paste "https://apps.acme.com/", "*.acme.com", or "acme.com" and it normalises
+// to the bare apex/subdomain we publish a wildcard under.
+const normalizeDomain = (raw: string) =>
+	raw
+		.trim()
+		.toLowerCase()
+		.replace(/^https?:\/\//, "")
+		.replace(/^\*\./, "")
+		.replace(/[/.]+$/, "");
+
+/**
+ * Self-host activation (spec §5.1, second branch): the owner supplies their own
+ * Cloudflare API token and a domain they already manage in Cloudflare. The
+ * appliance provisions its own tunnel + wildcard DNS directly (no broker, no
+ * device token, no support/kill-switch), then runs cloudflared locally — landing
+ * on the exact same `computeBay` config shape as a managed appliance.
+ *
+ * The Cloudflare API token is used only for this call and never persisted; once
+ * the tunnel exists, cloudflared runs on the per-tunnel connector token alone.
+ */
+export const activateSelfHostAppliance = async (params: {
+	cfApiToken: string;
+	domain: string;
+	accountId?: string;
+}): Promise<{ config: ComputeBayConfig; tunnelReady: boolean }> => {
+	const domain = normalizeDomain(params.domain);
+	if (!domain || !domain.includes(".")) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message: "Enter a valid domain you manage in Cloudflare (e.g. acme.com)",
+		});
+	}
+
+	let provisioned: Awaited<ReturnType<typeof provisionSelfHostTunnel>>;
+	try {
+		provisioned = await provisionSelfHostTunnel(params.cfApiToken.trim(), {
+			domain,
+			tunnelName: `cpb-selfhost-${domain.replace(/[^a-z0-9]+/g, "-")}`,
+			ingressService: APPLIANCE_INGRESS_SERVICE,
+			accountId: params.accountId?.trim() || undefined,
+		});
+	} catch (err) {
+		if (err instanceof CloudflareApiError) {
+			throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+		}
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message: "Could not set up the Cloudflare tunnel for this appliance",
+		});
+	}
+
+	const config = await updateComputeBayConfig({
+		tier: "self-host",
+		brokerBaseUrl: null,
+		deviceToken: null,
+		wildcardDomain: provisioned.wildcardDomain,
+		customerSlug: provisioned.wildcardDomain.split(".")[0] ?? null,
+		tunnelToken: provisioned.tunnelToken,
+		tunnelId: provisioned.tunnelId,
+		tunnelConfigured: true,
+	});
+
+	try {
+		await initializeCloudflared(provisioned.tunnelToken);
 	} catch {
 		return { config, tunnelReady: false };
 	}
@@ -270,11 +354,10 @@ const HEARTBEAT_JOB_NAME = "computebay-heartbeat";
 export const initComputeBayTunnel = async (): Promise<void> => {
 	const config = await getComputeBayConfig();
 
-	if (
-		config.tier === "managed" &&
-		config.tunnelConfigured &&
-		config.tunnelToken
-	) {
+	// Restart cloudflared with the stored connector token if a tunnel is
+	// configured — the host may have rebooted. Applies to both managed and
+	// self-host tiers; the token alone is what cloudflared needs.
+	if (config.tunnelConfigured && config.tunnelToken) {
 		try {
 			if (!(await isCloudflaredRunning())) {
 				await initializeCloudflared(config.tunnelToken);
