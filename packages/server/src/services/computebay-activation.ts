@@ -1,4 +1,6 @@
+import { statfsSync } from "node:fs";
 import os from "node:os";
+import { db } from "@dokploy/server/db";
 import { TRPCError } from "@trpc/server";
 import { scheduleJob } from "node-schedule";
 import {
@@ -51,6 +53,87 @@ const collectTelemetry = () => ({
 	cpu: os.cpus().length,
 	ram: Math.round((1 - os.freemem() / os.totalmem()) * 100),
 });
+
+// Root filesystem usage for the heartbeat (the appliance is single-disk).
+// undefined (field omitted) when the platform can't report it.
+const collectDiskPct = (): number | undefined => {
+	try {
+		const s = statfsSync("/");
+		if (!s.blocks) return undefined;
+		return Math.round(((s.blocks - s.bfree) / s.blocks) * 100);
+	} catch {
+		return undefined;
+	}
+};
+
+// Mirrors computebay-apps' LAN_ENTRYPOINT ("weblan"). Not imported from there
+// because computebay-apps imports this module — that would be a cycle.
+const HEARTBEAT_LAN_ENTRYPOINT = "weblan";
+
+type HeartbeatApp = {
+	name: string;
+	version: string | null;
+	exposure: "lan" | "public" | null;
+	status: string;
+};
+
+/**
+ * Per-app inventory for the heartbeat (spec §5.4): every application/compose
+ * on the box with its exposure + status. The appliance is single-node, so this
+ * intentionally spans all organizations rather than one session's org.
+ */
+const collectApps = async (): Promise<HeartbeatApp[]> => {
+	const projectList = await db.query.projects.findMany({
+		columns: { projectId: true },
+		with: {
+			environments: {
+				columns: { environmentId: true },
+				with: {
+					applications: {
+						columns: { name: true, applicationStatus: true },
+						with: { domains: { columns: { customEntrypoint: true } } },
+					},
+					compose: {
+						columns: { name: true, composeStatus: true },
+						with: { domains: { columns: { customEntrypoint: true } } },
+					},
+				},
+			},
+		},
+	});
+
+	const exposure = (
+		domains: { customEntrypoint: string | null }[],
+	): "lan" | "public" | null => {
+		if (domains.length === 0) return null;
+		return domains.some((d) => d.customEntrypoint !== HEARTBEAT_LAN_ENTRYPOINT)
+			? "public"
+			: "lan";
+	};
+
+	const apps: HeartbeatApp[] = [];
+	for (const project of projectList) {
+		for (const environment of project.environments) {
+			for (const app of environment.applications) {
+				apps.push({
+					name: app.name,
+					version: null,
+					exposure: exposure(app.domains),
+					status: app.applicationStatus,
+				});
+			}
+			for (const service of environment.compose) {
+				apps.push({
+					name: service.name,
+					version: null,
+					exposure: exposure(service.domains),
+					status: service.composeStatus,
+				});
+			}
+		}
+	}
+	return apps;
+};
 
 const normalizeBaseUrl = (url: string) => url.replace(/\/+$/, "");
 
@@ -290,24 +373,78 @@ export const getTunnelHealth = async (): Promise<TunnelHealth> => {
 	}
 };
 
-/** Post a telemetry heartbeat so the fleet dashboard sees this appliance as alive. */
-export const sendHeartbeat = async (telemetry?: {
-	appsTotal?: number;
-	appsRunning?: number;
-}): Promise<void> => {
+// Edge-trigger state for the event channel: last observed status per app and
+// the last cloudflared liveness, so we report transitions rather than spamming
+// the broker with steady-state every two minutes. In-memory on purpose — a
+// process restart re-baselines, which at worst re-reports a still-broken app once.
+const lastAppStatus = new Map<string, string>();
+let lastCloudflaredUp: boolean | null = null;
+
+/**
+ * Post a telemetry heartbeat so the fleet dashboard sees this appliance as
+ * alive — machine facts, the per-app inventory (spec §5.4), and whether the
+ * owner currently allows support access (§5.9, gates broker session opens).
+ * Also pushes edge-triggered events (app errored / tunnel connector down) to
+ * the broker's event channel. Everything here is best-effort.
+ */
+export const sendHeartbeat = async (): Promise<void> => {
 	const config = await getComputeBayConfig();
 	if (!requireBrokerContext(config)) return;
+
+	let apps: HeartbeatApp[] | undefined;
+	try {
+		apps = await collectApps();
+	} catch {
+		// Inventory is enrichment; the liveness tick must still go out.
+	}
+
+	const disk = collectDiskPct();
 	await brokerFetch(config, "/appliances/heartbeat", {
 		method: "POST",
 		body: JSON.stringify({
 			...collectTelemetry(),
-			apps_total: telemetry?.appsTotal,
-			apps_running: telemetry?.appsRunning,
+			...(disk === undefined ? {} : { disk }),
+			...(apps === undefined ? {} : { apps }),
+			support_access: !config.supportAccessPaused,
 			fork_version: process.env.DOKPLOY_VERSION || null,
 		}),
 	}).catch(() => {
 		// Heartbeat is best-effort; a missed beat just delays the "last seen" tick.
 	});
+
+	// Event channel: report transitions since the previous beat.
+	const events: { kind: "warning" | "error" | "success"; label: string }[] = [];
+	if (apps) {
+		for (const app of apps) {
+			const prev = lastAppStatus.get(app.name);
+			if (app.status === "error" && prev !== "error") {
+				events.push({ kind: "error", label: `${app.name} entered error state` });
+			} else if (app.status !== "error" && prev === "error") {
+				events.push({ kind: "success", label: `${app.name} recovered` });
+			}
+			lastAppStatus.set(app.name, app.status);
+		}
+	}
+	if (config.tunnelConfigured) {
+		const up = await isCloudflaredRunning().catch(() => true);
+		if (lastCloudflaredUp === true && !up) {
+			events.push({
+				kind: "warning",
+				label: "cloudflared tunnel connector is not running",
+			});
+		} else if (lastCloudflaredUp === false && up) {
+			events.push({ kind: "success", label: "cloudflared tunnel connector recovered" });
+		}
+		lastCloudflaredUp = up;
+	}
+	if (events.length > 0) {
+		await brokerFetch(config, "/appliances/report-events", {
+			method: "POST",
+			body: JSON.stringify({ events }),
+		}).catch(() => {
+			// Events are enrichment; drop them rather than fail the beat.
+		});
+	}
 };
 
 /** Publish a custom domain through this appliance's tunnel (broker adds the DNS). */
