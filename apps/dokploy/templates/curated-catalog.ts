@@ -6,10 +6,12 @@
  * (`templateId`) so installation reuses `compose.deployTemplate` — we do not
  * re-implement app packaging.
  *
- * FLAG (Phase 1 seam): `templateId` values must be reconciled against the live
- * Dokploy template registry (templates.dokploy.com/meta.json). The slugs below
- * follow the registry's naming convention but should be verified before launch;
- * an unknown id will surface as "not available" rather than silently failing.
+ * `templateId` values were reconciled against the live Dokploy template
+ * registry (templates.dokploy.com/meta.json, 388 templates) on 2026-07-04:
+ * wordpress, n8n, syncthing, dolibarr, and checkmate are exact ids; Nextcloud
+ * ships as `nextcloud-aio`; Invoice Ninja is absent from the registry, so the
+ * invoicing slot uses InvoiceShelf (`invoiceshelf`), the closest equivalent.
+ * Re-verify against the registry if entries are added or Dokploy re-slugs.
  *
  * `resource` is a human estimate used both for display and (later, Phase 2) for
  * the "installing this would over-allocate" dashboard warning.
@@ -38,7 +40,7 @@ export interface PartnerApp extends CuratedApp {
 export const CURATED_APPS: CuratedApp[] = [
 	{
 		id: "nextcloud",
-		templateId: "nextcloud",
+		templateId: "nextcloud-aio",
 		name: "Nextcloud",
 		icon: "cloud",
 		iconBg: "#E0F2FE",
@@ -58,8 +60,8 @@ export const CURATED_APPS: CuratedApp[] = [
 	},
 	{
 		id: "invoice-ninja",
-		templateId: "invoiceninja",
-		name: "Invoice Ninja",
+		templateId: "invoiceshelf",
+		name: "InvoiceShelf",
 		icon: "receipt",
 		iconBg: "#FEF3C7",
 		iconColor: "#B45309",
