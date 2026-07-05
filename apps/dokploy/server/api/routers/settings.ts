@@ -16,6 +16,7 @@ import {
 	execAsync,
 	findServerById,
 	getDockerDiskUsage,
+	getDokployImageName,
 	getDokployImageTag,
 	getLogCleanupStatus,
 	getUpdateData,
@@ -576,7 +577,7 @@ export const settingsRouter = createTRPCRouter({
 				"update",
 				"--force",
 				"--image",
-				`dokploy/dokploy:${data.latestVersion}`,
+				`${getDokployImageName()}:${data.latestVersion}`,
 				"dokploy",
 			]);
 			await audit(ctx, {

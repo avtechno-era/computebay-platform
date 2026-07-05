@@ -1,8 +1,10 @@
-name: Dokploy Monitoring Build
+name: Dokploy Monitoring Build (upstream, disabled)
 
+# ComputeBay fork: superseded by computebay-monitoring.yml (GHCR). This upstream
+# pipeline pushes to dokploy/monitoring on Docker Hub with secrets we don't own.
+# Kept for reference; manual-trigger only.
 on:
-  push:
-    branches: [main, canary]
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: dokploy/monitoring

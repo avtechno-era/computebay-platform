@@ -1,8 +1,9 @@
-name: Build Docker images
+name: Build Docker images (upstream cloud, disabled)
 
+# ComputeBay fork: builds upstream's hosted-cloud image (siumauricio/cloud), not
+# the appliance. Not part of the ComputeBay product; disabled so it doesn't run
+# and fail on push without Dokploy's Docker Hub secrets.
 on:
-  push:
-    branches: [main, canary]
   workflow_dispatch:
 
 jobs:

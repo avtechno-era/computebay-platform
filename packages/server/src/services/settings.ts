@@ -29,6 +29,83 @@ export const getDokployImageTag = () => {
 	return process.env.RELEASE_TAG || "latest";
 };
 
+/**
+ * ComputeBay control-plane image, split into its registry host and repository
+ * path so the registry API (which wants the bare `owner/name` path) and the
+ * docker CLI (which wants the fully-qualified `host/owner/name` ref) can each be
+ * built from the same source of truth. Both are env-overridable so the installer
+ * or CI can repoint the appliance without a rebuild.
+ */
+export const COMPUTEBAY_REGISTRY_HOST =
+	process.env.COMPUTEBAY_REGISTRY || "ghcr.io";
+export const COMPUTEBAY_IMAGE_REPO =
+	process.env.COMPUTEBAY_IMAGE_REPO || "avtechno-era/computebay-platform";
+
+export const COMPUTEBAY_MONITORING_IMAGE_REPO =
+	process.env.COMPUTEBAY_MONITORING_IMAGE_REPO ||
+	"avtechno-era/computebay-monitoring";
+
+/** Fully-qualified image name (no tag), e.g. `ghcr.io/avtechno-era/computebay-platform`. */
+export const getDokployImageName = () =>
+	`${COMPUTEBAY_REGISTRY_HOST}/${COMPUTEBAY_IMAGE_REPO}`;
+
+/** Fully-qualified monitoring image name (no tag). */
+export const getMonitoringImageName = () =>
+	`${COMPUTEBAY_REGISTRY_HOST}/${COMPUTEBAY_MONITORING_IMAGE_REPO}`;
+
+/** Anonymous pull token for a public GHCR repository. */
+const getGhcrPullToken = async (repo: string): Promise<string | null> => {
+	const response = await fetch(
+		`https://${COMPUTEBAY_REGISTRY_HOST}/token?service=${COMPUTEBAY_REGISTRY_HOST}&scope=repository:${repo}:pull`,
+	);
+	const data = (await response.json()) as { token?: string };
+	return data.token ?? null;
+};
+
+/** Lists every tag for a GHCR repository, following registry pagination. */
+const listGhcrTags = async (repo: string, token: string): Promise<string[]> => {
+	let url: string | null = `https://${COMPUTEBAY_REGISTRY_HOST}/v2/${repo}/tags/list?n=100`;
+	const tags: string[] = [];
+	while (url) {
+		const response: Response = await fetch(url, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		const data = (await response.json()) as { tags: string[] | null };
+		if (data.tags) {
+			tags.push(...data.tags);
+		}
+		// Pagination is advertised via a Link header: `</v2/...>; rel="next"`.
+		const link = response.headers.get("link");
+		const next = link?.match(/<([^>]+)>;\s*rel="next"/);
+		url = next ? `https://${COMPUTEBAY_REGISTRY_HOST}${next[1]}` : null;
+	}
+	return tags;
+};
+
+/** Returns the manifest digest a GHCR tag currently resolves to, or null. */
+const getGhcrDigest = async (
+	repo: string,
+	ref: string,
+	token: string,
+): Promise<string | null> => {
+	const response = await fetch(
+		`https://${COMPUTEBAY_REGISTRY_HOST}/v2/${repo}/manifests/${ref}`,
+		{
+			method: "HEAD",
+			headers: {
+				Authorization: `Bearer ${token}`,
+				Accept: [
+					"application/vnd.oci.image.index.v1+json",
+					"application/vnd.docker.distribution.manifest.list.v2+json",
+					"application/vnd.oci.image.manifest.v1+json",
+					"application/vnd.docker.distribution.manifest.v2+json",
+				].join(", "),
+			},
+		},
+	);
+	return response.headers.get("docker-content-digest");
+};
+
 /** Returns Dokploy docker service image digest */
 export const getServiceImageDigest = async () => {
 	const { stdout } = await execAsync(
@@ -44,91 +121,63 @@ export const getServiceImageDigest = async () => {
 	return currentDigest;
 };
 
-/** Returns latest version number and information whether server update is available by comparing current image's digest against digest for provided image tag via Docker hub API. */
+/** Returns latest version number and whether a server update is available by
+ * inspecting the ComputeBay image's tags on GHCR. Unlike Docker Hub's tags API,
+ * GHCR's registry API doesn't return per-tag digests in the listing, so stable
+ * releases are compared by picking the greatest semver tag, and moving tags
+ * (canary/feature) are compared by resolving the tag's manifest digest. */
 export const getUpdateData = async (
 	currentVersion: string,
 ): Promise<IUpdateData> => {
 	try {
-		const baseUrl =
-			"https://hub.docker.com/v2/repositories/dokploy/dokploy/tags";
-		let url: string | null = `${baseUrl}?page_size=100`;
-		let allResults: { digest: string; name: string }[] = [];
-
-		// Fetch all tags from Docker Hub
-		while (url) {
-			const response = await fetch(url, {
-				method: "GET",
-				headers: { "Content-Type": "application/json" },
-			});
-
-			const data = (await response.json()) as {
-				next: string | null;
-				results: { digest: string; name: string }[];
-			};
-
-			allResults = allResults.concat(data.results);
-			url = data?.next;
+		const repo = COMPUTEBAY_IMAGE_REPO;
+		const token = await getGhcrPullToken(repo);
+		if (!token) {
+			return DEFAULT_UPDATE_DATA;
 		}
 
+		const tags = await listGhcrTags(repo, token);
 		const currentImageTag = getDokployImageTag();
 
-		// Special handling for canary and feature branches
-		// For development versions (canary/feature), don't perform update checks
-		// These are unstable versions that change frequently, and users on these
-		// branches are expected to manually manage updates
+		// Special handling for canary and feature branches.
+		// These moving tags keep the same name across releases, so compare the
+		// digest the tag currently resolves to against the running image's digest.
 		if (currentImageTag === "canary" || currentImageTag === "feature") {
+			if (!tags.includes(currentImageTag)) {
+				return DEFAULT_UPDATE_DATA;
+			}
 			const currentDigest = await getServiceImageDigest();
-			const latestDigest = allResults.find(
-				(t) => t.name === currentImageTag,
-			)?.digest;
+			const latestDigest = await getGhcrDigest(repo, currentImageTag, token);
 			if (!latestDigest) {
 				return DEFAULT_UPDATE_DATA;
 			}
-			if (currentDigest !== latestDigest) {
-				return {
-					latestVersion: currentImageTag,
-					updateAvailable: true,
-				};
-			}
 			return {
 				latestVersion: currentImageTag,
-				updateAvailable: false,
+				updateAvailable: currentDigest !== latestDigest,
 			};
 		}
 
-		// For stable versions, use semver comparison
-		// Find the "latest" tag and get its digest
-		const latestTag = allResults.find((t) => t.name === "latest");
+		// For stable versions, pick the greatest valid semver tag on the registry.
+		const versioned = tags
+			.map((tag) => ({ tag, clean: semver.valid(semver.clean(tag)) }))
+			.filter((t): t is { tag: string; clean: string } => t.clean !== null)
+			.sort((a, b) => semver.rcompare(a.clean, b.clean));
 
-		if (!latestTag) {
+		const latest = versioned[0];
+		if (!latest) {
 			return DEFAULT_UPDATE_DATA;
 		}
 
-		// Find the versioned tag (v0.x.x) that has the same digest as "latest"
-		const latestVersionTag = allResults.find(
-			(t) => t.digest === latestTag.digest && t.name.startsWith("v"),
-		);
-
-		if (!latestVersionTag) {
-			return DEFAULT_UPDATE_DATA;
-		}
-
-		const latestVersion = latestVersionTag.name;
-
-		// Use semver to compare versions for stable releases
 		const cleanedCurrent = semver.clean(currentVersion);
-		const cleanedLatest = semver.clean(latestVersion);
-
-		if (!cleanedCurrent || !cleanedLatest) {
+		if (!cleanedCurrent) {
 			return DEFAULT_UPDATE_DATA;
 		}
-
-		// Check if the latest version is greater than the current version
-		const updateAvailable = semver.gt(cleanedLatest, cleanedCurrent);
 
 		return {
-			latestVersion,
-			updateAvailable,
+			// Preserve the tag exactly as published (e.g. `v0.29.8`) so it can be
+			// fed straight back into `docker service update --image name:<tag>`.
+			latestVersion: latest.tag,
+			updateAvailable: semver.gt(latest.clean, cleanedCurrent),
 		};
 	} catch (error) {
 		console.error("Error fetching update data:", error);
@@ -295,7 +344,7 @@ export const reloadDockerResource = async (
 				imageTag = currentImageTag;
 			}
 
-			command = `docker service update --force --image dokploy/dokploy:${imageTag} ${resourceName}`;
+			command = `docker service update --force --image ${getDokployImageName()}:${imageTag} ${resourceName}`;
 		} else {
 			command = `docker service update --force ${resourceName}`;
 		}

@@ -1,8 +1,10 @@
-name: Dokploy Docker Build
+name: Dokploy Docker Build (upstream, disabled)
 
+# ComputeBay fork: this upstream pipeline pushes to dokploy/dokploy on Docker Hub
+# using Dokploy's secrets, which we don't own. Superseded by computebay.yml
+# (GHCR). Kept for reference / upstream-merge diffing but no longer auto-runs;
+# trigger manually only if you deliberately need the upstream behaviour.
 on:
-  push:
-    branches: [main, canary, "fix/re-apply-database-migration-fix"]
   workflow_dispatch:
 
 env:

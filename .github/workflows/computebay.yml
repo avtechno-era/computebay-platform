@@ -1,0 +1,66 @@
+name: ComputeBay Image Build
+
+# Builds the ComputeBay control-plane (appliance) image and publishes it to
+# GHCR under Avante's org. Appliances self-update off this image — see the
+# self-updater in packages/server/src/services/settings.ts (getUpdateData).
+#
+# Fork note: this replaces upstream Dokploy's Docker Hub pipeline
+# (.github/workflows/dokploy.yml). The upstream release / MCP-CLI-SDK sync steps
+# are intentionally dropped; they push to dokploy/* repos we don't own.
+
+on:
+  push:
+    branches: [main, canary]
+  workflow_dispatch:
+
+env:
+  # ghcr.io/avtechno-era/computebay-platform — keep in sync with
+  # COMPUTEBAY_IMAGE_REPO in packages/server/src/services/settings.ts
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/computebay-platform
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set tags
+        id: meta
+        run: |
+          IMAGE_NAME_LC=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
+          echo "image=${IMAGE_NAME_LC}" >> $GITHUB_OUTPUT
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            VERSION=$(node -p "require('./apps/dokploy/package.json').version")
+            echo "tags=${IMAGE_NAME_LC}:latest,${IMAGE_NAME_LC}:${VERSION}" >> $GITHUB_OUTPUT
+          else
+            echo "tags=${IMAGE_NAME_LC}:canary" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare env file
+        # The Dockerfile bakes in a .env at build context root (COPY .env.production ./.env)
+        run: |
+          cp apps/dokploy/.env.production.example .env.production
+          cp apps/dokploy/.env.production.example apps/dokploy/.env.production
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
