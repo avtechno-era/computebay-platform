@@ -69,6 +69,13 @@ export const startSupportSession = async (params: {
 		})
 		.returning();
 
+	if (!row) {
+		throw new TRPCError({
+			code: "INTERNAL_SERVER_ERROR",
+			message: "Failed to record support session",
+		});
+	}
+
 	return row;
 };
 
@@ -96,7 +103,7 @@ export const endSupportSession = async (
 		.where(eq(supportSession.id, target.id))
 		.returning();
 
-	return row;
+	return row ?? null;
 };
 
 export const getActiveSupportSession =
