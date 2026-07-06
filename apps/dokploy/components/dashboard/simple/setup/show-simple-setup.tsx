@@ -16,11 +16,12 @@ import { api } from "@/utils/api";
 // The managed broker address is a fleet-wide constant, not something an MSME owner
 // should have to know. Prefer a build-time value; the field stays editable behind
 // "Advanced" for self-hosted brokers / staging.
-const DEFAULT_BROKER_URL = process.env.NEXT_PUBLIC_COMPUTEBAY_BROKER_URL || "http://localhost:4000";
+export const DEFAULT_BROKER_URL =
+	process.env.NEXT_PUBLIC_COMPUTEBAY_BROKER_URL || "http://localhost:4000";
 
-type Mode = "choose" | "managed" | "selfhost";
+export type Mode = "choose" | "managed" | "selfhost";
 
-const labelStyle: CSSProperties = {
+export const labelStyle: CSSProperties = {
 	display: "block",
 	fontWeight: 600,
 	fontSize: 12,
@@ -28,7 +29,7 @@ const labelStyle: CSSProperties = {
 	marginBottom: 6,
 };
 
-const inputStyle: CSSProperties = {
+export const inputStyle: CSSProperties = {
 	width: "100%",
 	padding: "10px 12px",
 	borderRadius: 8,
@@ -39,7 +40,7 @@ const inputStyle: CSSProperties = {
 	outline: "none",
 };
 
-const hintStyle: CSSProperties = {
+export const hintStyle: CSSProperties = {
 	fontSize: 12,
 	color: "var(--cb-text-muted)",
 	marginTop: 6,
@@ -132,7 +133,12 @@ export const ShowSimpleSetup = () => {
 			<div className="cb-fade" style={{ width: "100%", maxWidth: 560 }}>
 				{/* Brand header */}
 				<div
-					style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28 }}
+					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: 12,
+						marginBottom: 28,
+					}}
 				>
 					<div
 						style={{
@@ -178,66 +184,14 @@ export const ShowSimpleSetup = () => {
 						<BackLink onClick={() => setMode("choose")} />
 						<h2 style={cardTitle}>Enter your activation code</h2>
 						<p style={cardLead}>
-							Avante sent you a code with your appliance. It connects this device
-							to Avante for support, updates, and your public address.
+							Avante sent you a code with your appliance. It connects this
+							device to Avante for support, updates, and your public address.
 						</p>
 
-						{/* Telemetry disclosure (spec §5.4) — must be acknowledged before we
-						    activate a managed appliance. */}
-						<div
-							style={{
-								border: "1px solid var(--cb-border)",
-								borderRadius: 8,
-								background: "var(--cb-surface)",
-								padding: "14px 16px",
-								marginBottom: 18,
-							}}
-						>
-							<div
-								style={{
-									display: "flex",
-									alignItems: "center",
-									gap: 8,
-									fontWeight: 600,
-									fontSize: 13,
-									color: "var(--cb-text)",
-									marginBottom: 8,
-								}}
-							>
-								<ShieldCheck size={15} style={{ color: "var(--cb-brand)" }} />
-								What Avante can see
-							</div>
-							<div style={{ fontSize: 12.5, color: "var(--cb-text-muted)", lineHeight: 1.55 }}>
-								Every few minutes your appliance tells Avante which apps are
-								installed and their versions, how much disk and memory are in
-								use, error events when apps crash, and whether your tunnel is
-								healthy — so we can support you and push security updates.
-								<br />
-								<br />
-								Avante never receives the contents of your apps, your files,
-								your users&rsquo; passwords, or your backups. You can review
-								this any time in Settings.
-							</div>
-							<label
-								style={{
-									display: "flex",
-									alignItems: "flex-start",
-									gap: 8,
-									marginTop: 12,
-									cursor: "pointer",
-								}}
-							>
-								<input
-									type="checkbox"
-									checked={telemetryAck}
-									onChange={(e) => setTelemetryAck(e.target.checked)}
-									style={{ marginTop: 2 }}
-								/>
-								<span style={{ fontSize: 12.5, color: "var(--cb-text)" }}>
-									I understand what my appliance shares with Avante.
-								</span>
-							</label>
-						</div>
+						<TelemetryDisclosure
+							checked={telemetryAck}
+							onChange={setTelemetryAck}
+						/>
 
 						<label style={labelStyle}>Activation code</label>
 						<input
@@ -272,7 +226,9 @@ export const ShowSimpleSetup = () => {
 						)}
 
 						<PrimaryButton
-							disabled={pending || !telemetryAck || activationCode.trim().length < 8}
+							disabled={
+								pending || !telemetryAck || activationCode.trim().length < 8
+							}
 							loading={pending}
 							onClick={submitManaged}
 							label="Activate appliance"
@@ -298,7 +254,8 @@ export const ShowSimpleSetup = () => {
 						/>
 						<div style={hintStyle}>
 							Apps you publish will live at{" "}
-							<span className="cb-mono">app.{domain.trim() || "acme.com"}</span>.
+							<span className="cb-mono">app.{domain.trim() || "acme.com"}</span>
+							.
 						</div>
 
 						<label style={{ ...labelStyle, marginTop: 16 }}>
@@ -337,7 +294,9 @@ export const ShowSimpleSetup = () => {
 
 						<PrimaryButton
 							disabled={
-								pending || !domain.trim().includes(".") || cfToken.trim().length < 8
+								pending ||
+								!domain.trim().includes(".") ||
+								cfToken.trim().length < 8
 							}
 							loading={pending}
 							onClick={submitSelfHost}
@@ -350,28 +309,100 @@ export const ShowSimpleSetup = () => {
 	);
 };
 
-const cardStyle: CSSProperties = {
+export const cardStyle: CSSProperties = {
 	border: "1px solid var(--cb-border)",
 	borderRadius: 12,
 	background: "var(--cb-elevated)",
 	padding: "24px 24px 26px",
 };
 
-const cardTitle: CSSProperties = {
+export const cardTitle: CSSProperties = {
 	font: "600 19px/1.25 'Inter'",
 	color: "var(--cb-text)",
 	margin: "4px 0 8px",
 	letterSpacing: "-0.01em",
 };
 
-const cardLead: CSSProperties = {
+export const cardLead: CSSProperties = {
 	fontSize: 13.5,
 	color: "var(--cb-text-muted)",
 	lineHeight: 1.55,
 	margin: "0 0 20px",
 };
 
-const ChooseCard = ({ onPick }: { onPick: (m: Mode) => void }) => (
+// Telemetry disclosure (spec §5.4) — must be acknowledged before a managed
+// appliance is activated. Shared by the post-login wizard and the first-boot
+// screen so the "What Avante can see" copy stays in one place.
+export const TelemetryDisclosure = ({
+	checked,
+	onChange,
+}: {
+	checked: boolean;
+	onChange: (v: boolean) => void;
+}) => (
+	<div
+		style={{
+			border: "1px solid var(--cb-border)",
+			borderRadius: 8,
+			background: "var(--cb-surface)",
+			padding: "14px 16px",
+			marginBottom: 18,
+		}}
+	>
+		<div
+			style={{
+				display: "flex",
+				alignItems: "center",
+				gap: 8,
+				fontWeight: 600,
+				fontSize: 13,
+				color: "var(--cb-text)",
+				marginBottom: 8,
+			}}
+		>
+			<ShieldCheck size={15} style={{ color: "var(--cb-brand)" }} />
+			What Avante can see
+		</div>
+		<div
+			style={{
+				fontSize: 12.5,
+				color: "var(--cb-text-muted)",
+				lineHeight: 1.55,
+			}}
+		>
+			Every few minutes your appliance tells Avante which apps are installed and
+			their versions, how much disk and memory are in use, error events when
+			apps crash, and whether your tunnel is healthy — so we can support you and
+			push security updates.
+			<br />
+			<br />
+			Avante never receives the contents of your apps, your files, your
+			users&rsquo; passwords, or your backups. You can review this any time in
+			Settings.
+		</div>
+		<label
+			style={{
+				display: "flex",
+				alignItems: "flex-start",
+				gap: 8,
+				marginTop: 12,
+				cursor: "pointer",
+			}}
+		>
+			<input
+				type="checkbox"
+				checked={checked}
+				onChange={(e) => onChange(e.target.checked)}
+				style={{ marginTop: 2 }}
+			/>
+			<span style={{ fontSize: 12.5, color: "var(--cb-text)" }}>
+				I understand what my appliance shares with Avante.
+			</span>
+		</label>
+	</div>
+);
+
+export const ChooseCard = ({ onPick }: { onPick: (m: Mode) => void }) => (
 	<div style={{ display: "grid", gap: 14 }}>
 		<p style={{ ...cardLead, margin: "0 0 6px" }}>
 			How is this appliance being run? Your apps work on your office network
@@ -392,7 +423,7 @@ const ChooseCard = ({ onPick }: { onPick: (m: Mode) => void }) => (
 	</div>
 );
 
-const OptionCard = ({
+export const OptionCard = ({
 	icon,
 	title,
 	body,
@@ -452,7 +483,7 @@ const OptionCard = ({
 	</button>
 );
 
-const BackLink = ({ onClick }: { onClick: () => void }) => (
+export const BackLink = ({ onClick }: { onClick: () => void }) => (
 	<button
 		type="button"
 		onClick={onClick}
@@ -472,7 +503,7 @@ const BackLink = ({ onClick }: { onClick: () => void }) => (
 	</button>
 );
 
-const AdvancedToggle = ({
+export const AdvancedToggle = ({
 	open,
 	onToggle,
 }: {
@@ -495,7 +526,7 @@ const AdvancedToggle = ({
 	</button>
 );
 
-const PrimaryButton = ({
+export const PrimaryButton = ({
 	disabled,
 	loading,
 	onClick,

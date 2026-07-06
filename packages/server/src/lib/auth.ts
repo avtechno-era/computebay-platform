@@ -427,6 +427,11 @@ const _auth = {
 	createApiKey: api.createApiKey,
 	registerSSOProvider: api.registerSSOProvider,
 	updateSSOProvider: api.updateSSOProvider,
+	// Server-side email sign-up. ComputeBay's managed first-boot flow uses this to
+	// auto-create the appliance's Dokploy admin from broker-provisioned credentials
+	// (no customer-entered registration form). Triggers the same user.create hooks
+	// that build the org + owner member.
+	signUpEmail: api.signUpEmail,
 };
 
 export type AuthType = typeof _auth;

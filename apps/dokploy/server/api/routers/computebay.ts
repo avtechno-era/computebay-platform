@@ -1,8 +1,10 @@
-import { findComposeById } from "@dokploy/server";
+import { auth, findComposeById, isAdminPresent } from "@dokploy/server";
+import { db } from "@dokploy/server/db";
 import {
 	apiUpdateBusinessProfile,
 	apiUpdateInterface,
 	apiUpdateSupportAccess,
+	organization,
 } from "@dokploy/server/db/schema";
 import {
 	activateManagedAppliance,
@@ -23,10 +25,16 @@ import {
 } from "@dokploy/server/services/computebay-config";
 import { checkServicePermissionAndAccess } from "@dokploy/server/services/permission";
 import { TRPCError } from "@trpc/server";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { DeploymentJob } from "@/server/queues/queue-types";
 import { myQueue } from "@/server/queues/queueSetup";
-import { adminProcedure, createTRPCRouter, protectedProcedure } from "../trpc";
+import {
+	adminProcedure,
+	createTRPCRouter,
+	protectedProcedure,
+	publicProcedure,
+} from "../trpc";
 import { audit } from "../utils/audit";
 
 export const computebayRouter = createTRPCRouter({
@@ -128,6 +136,80 @@ export const computebayRouter = createTRPCRouter({
 			// getConfig — they only ever live server-side.
 			const { tunnelToken: _t, deviceToken: _d, ...config } = result.config;
 			return { tunnelReady: result.tunnelReady, config };
+		}),
+
+	// Managed first-boot (§5.1): runs *before* any admin exists. Redeems the
+	// activation code, then auto-creates the Dokploy admin from the login the
+	// broker provisioned for this appliance — the customer never fills in a
+	// registration form. publicProcedure because there is no session yet; guarded
+	// so it can only run on a virgin box (an existing owner means this is a no-op).
+	setupManaged: publicProcedure
+		.input(
+			z.object({
+				activationCode: z.string().min(1),
+				brokerBaseUrl: z.string().url(),
+				serialNumber: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			if (await isAdminPresent()) {
+				throw new TRPCError({
+					code: "FORBIDDEN",
+					message: "This appliance already has an administrator",
+				});
+			}
+
+			const result = await activateManagedAppliance(input);
+			const admin = result.admin;
+			if (!admin?.email || !admin.password) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message:
+						"The broker activated this appliance but returned no login credentials",
+				});
+			}
+
+			// Create the first admin from the broker-provisioned login. This triggers
+			// the better-auth user.create hooks that build the org + owner member.
+			try {
+				await auth.signUpEmail({
+					body: {
+						email: admin.email,
+						password: admin.password,
+						name: admin.owner_name || admin.business_name || "Administrator",
+					},
+				});
+			} catch (err) {
+				throw new TRPCError({
+					code: "INTERNAL_SERVER_ERROR",
+					message:
+						err instanceof Error
+							? err.message
+							: "Could not create the appliance administrator",
+				});
+			}
+
+			// The rest of the fields the simplified wizard hides come from Fleet
+			// Manager's record: name the org after the business and store the profile.
+			if (admin.business_name) {
+				try {
+					await db
+						.update(organization)
+						.set({ name: admin.business_name })
+						.where(eq(organization.name, "My Organization"));
+				} catch {
+					// Cosmetic — never fail setup over the org label.
+				}
+				await updateComputeBayConfig({ businessName: admin.business_name });
+			}
+
+			// The client signs in with these to establish its session, rather than
+			// forwarding better-auth's Set-Cookie through the tRPC response.
+			return {
+				tunnelReady: result.tunnelReady,
+				adminEmail: admin.email,
+				adminPassword: admin.password,
+			};
 		}),
 
 	// Self-host activation (§5.1, second branch): the owner brings their own

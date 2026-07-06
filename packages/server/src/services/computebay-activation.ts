@@ -40,9 +40,19 @@ type BrokerActivation = {
 	device_token: string;
 } | null;
 
+// Avante-provisioned Dokploy admin login the appliance auto-creates from on
+// first boot. Present on a managed activation regardless of tunnel success.
+export type BrokerAdmin = {
+	email: string;
+	password: string;
+	business_name: string;
+	owner_name: string;
+};
+
 type ActivateResponse = {
 	ok?: boolean;
 	activation?: BrokerActivation;
+	admin?: BrokerAdmin;
 	error?: { code?: string; message?: string };
 };
 
@@ -155,7 +165,11 @@ export const activateManagedAppliance = async (params: {
 	activationCode: string;
 	brokerBaseUrl: string;
 	serialNumber?: string;
-}): Promise<{ config: ComputeBayConfig; tunnelReady: boolean }> => {
+}): Promise<{
+	config: ComputeBayConfig;
+	tunnelReady: boolean;
+	admin: BrokerAdmin | null;
+}> => {
 	const brokerBaseUrl = normalizeBaseUrl(params.brokerBaseUrl);
 	const serial = (params.serialNumber || os.hostname() || "").trim();
 	if (!serial) {
@@ -194,6 +208,10 @@ export const activateManagedAppliance = async (params: {
 	}
 
 	const activation = res?.activation ?? null;
+	// The broker returns the appliance's provisioned Dokploy admin login; the
+	// caller uses it to auto-create the first admin. Present on a successful
+	// managed activation whether or not the tunnel came up.
+	const admin = res?.admin ?? null;
 
 	// The appliance is managed regardless; the tunnel may or may not be ready.
 	const base: Partial<ComputeBayConfig> = {
@@ -206,7 +224,7 @@ export const activateManagedAppliance = async (params: {
 			...base,
 			tunnelConfigured: false,
 		});
-		return { config, tunnelReady: false };
+		return { config, tunnelReady: false, admin };
 	}
 
 	const config = await updateComputeBayConfig({
@@ -224,10 +242,10 @@ export const activateManagedAppliance = async (params: {
 	try {
 		await initializeCloudflared(activation.tunnel_token);
 	} catch {
-		return { config, tunnelReady: false };
+		return { config, tunnelReady: false, admin };
 	}
 
-	return { config, tunnelReady: true };
+	return { config, tunnelReady: true, admin };
 };
 
 // --- Self-host activation (no broker) ---------------------------------------

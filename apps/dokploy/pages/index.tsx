@@ -431,10 +431,13 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
 	const hasAdmin = await isAdminPresent();
 
 	if (!hasAdmin) {
+		// ComputeBay first boot: ask managed-vs-self-host before anything else.
+		// The managed branch auto-creates the admin (no registration form); the
+		// self-host branch forwards to Dokploy's stock /register.
 		return {
 			redirect: {
 				permanent: false,
-				destination: "/register",
+				destination: "/welcome",
 			},
 		};
 	}
