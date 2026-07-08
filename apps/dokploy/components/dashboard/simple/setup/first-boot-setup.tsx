@@ -40,6 +40,7 @@ export const FirstBootSetup = () => {
 	// Only "choose" and "managed" live here — self-host bounces to /register.
 	const [mode, setMode] =
 		useState<Extract<Mode, "choose" | "managed">>("choose");
+	console.log("First Boot?", mode);
 	const [activationCode, setActivationCode] = useState("");
 	const [brokerUrl, setBrokerUrl] = useState(DEFAULT_BROKER_URL);
 	const [telemetryAck, setTelemetryAck] = useState(false);
@@ -152,11 +153,15 @@ export const FirstBootSetup = () => {
 							onChange={setTelemetryAck}
 						/>
 
-						<label style={labelStyle}>Activation code</label>
+						<label style={labelStyle} htmlFor="activation-code">
+							Activation code
+						</label>
 						<input
+							id="activation-code"
 							value={activationCode}
 							onChange={(e) => setActivationCode(e.target.value)}
 							placeholder="XXXX-XXXX-XXXX"
+							// biome-ignore lint/a11y/noAutofocus: sole input on this onboarding step, autofocus speeds up code entry
 							autoFocus
 							className="cb-mono"
 							style={{ ...inputStyle, letterSpacing: "0.08em" }}
@@ -171,8 +176,11 @@ export const FirstBootSetup = () => {
 						/>
 						{showAdvanced && (
 							<div style={{ marginTop: 12 }}>
-								<label style={labelStyle}>Broker address</label>
+								<label style={labelStyle} htmlFor="broker-address">
+									Broker address
+								</label>
 								<input
+									id="broker-address"
 									value={brokerUrl}
 									onChange={(e) => setBrokerUrl(e.target.value)}
 									placeholder="https://fleet.computebay.app"

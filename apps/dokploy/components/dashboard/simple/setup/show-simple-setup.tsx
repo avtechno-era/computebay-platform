@@ -193,11 +193,15 @@ export const ShowSimpleSetup = () => {
 							onChange={setTelemetryAck}
 						/>
 
-						<label style={labelStyle}>Activation code</label>
+						<label style={labelStyle} htmlFor="activation-code">
+							Activation code
+						</label>
 						<input
+							id="activation-code"
 							value={activationCode}
 							onChange={(e) => setActivationCode(e.target.value)}
 							placeholder="XXXX-XXXX-XXXX"
+							// biome-ignore lint/a11y/noAutofocus: sole input on this onboarding step, autofocus speeds up code entry
 							autoFocus
 							className="cb-mono"
 							style={{ ...inputStyle, letterSpacing: "0.08em" }}
@@ -212,8 +216,11 @@ export const ShowSimpleSetup = () => {
 						/>
 						{showAdvanced && (
 							<div style={{ marginTop: 12 }}>
-								<label style={labelStyle}>Broker address</label>
+								<label style={labelStyle} htmlFor="broker-address">
+									Broker address
+								</label>
 								<input
+									id="broker-address"
 									value={brokerUrl}
 									onChange={(e) => setBrokerUrl(e.target.value)}
 									placeholder="https://fleet.computebay.app"
@@ -244,11 +251,15 @@ export const ShowSimpleSetup = () => {
 							a Cloudflare API token and a domain you already manage there.
 						</p>
 
-						<label style={labelStyle}>Your domain</label>
+						<label style={labelStyle} htmlFor="domain">
+							Your domain
+						</label>
 						<input
+							id="domain"
 							value={domain}
 							onChange={(e) => setDomain(e.target.value)}
 							placeholder="acme.com"
+							// biome-ignore lint/a11y/noAutofocus: sole input on this onboarding step, autofocus speeds up entry
 							autoFocus
 							style={inputStyle}
 						/>
@@ -258,10 +269,11 @@ export const ShowSimpleSetup = () => {
 							.
 						</div>
 
-						<label style={{ ...labelStyle, marginTop: 16 }}>
+						<label style={{ ...labelStyle, marginTop: 16 }} htmlFor="cf-token">
 							Cloudflare API token
 						</label>
 						<input
+							id="cf-token"
 							value={cfToken}
 							onChange={(e) => setCfToken(e.target.value)}
 							type="password"
@@ -281,8 +293,11 @@ export const ShowSimpleSetup = () => {
 						/>
 						{showAdvanced && (
 							<div style={{ marginTop: 12 }}>
-								<label style={labelStyle}>Cloudflare account ID</label>
+								<label style={labelStyle} htmlFor="cf-account-id">
+									Cloudflare account ID
+								</label>
 								<input
+									id="cf-account-id"
 									value={accountId}
 									onChange={(e) => setAccountId(e.target.value)}
 									placeholder="Optional — only if your token sees multiple accounts"

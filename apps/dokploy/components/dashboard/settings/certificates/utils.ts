@@ -115,13 +115,13 @@ export const extractCommonName = (certData: string): string | null => {
 
 		// Helper: read ASN.1 length field
 		function readLength(pos: number): { length: number; offset: number } {
-			// biome-ignore lint/style/noParameterAssign: <explanation>
+			// biome-ignore lint/style/noParameterAssign: pos is a local cursor into der, incremented in place to track the read position
 			let len = der[pos++];
 			if (len & 0x80) {
 				const bytes = len & 0x7f;
 				len = 0;
 				for (let i = 0; i < bytes; i++) {
-					// biome-ignore lint/style/noParameterAssign: <explanation>
+					// biome-ignore lint/style/noParameterAssign: pos is a local cursor into der, incremented in place to track the read position
 					len = (len << 8) + der[pos++];
 				}
 			}
@@ -130,7 +130,7 @@ export const extractCommonName = (certData: string): string | null => {
 
 		// Helper: skip a field
 		function skipField(pos: number): number {
-			// biome-ignore lint/style/noParameterAssign: <explanation>
+			// biome-ignore lint/style/noParameterAssign: pos is a local cursor into der, incremented in place to track the read position
 			pos++;
 			const fieldLen = readLength(pos);
 			return fieldLen.offset + fieldLen.length;

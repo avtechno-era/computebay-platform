@@ -50,8 +50,8 @@ export const ComputeBaySupportAccessEmail = ({
 						</Text>
 						<Text className="text-black text-[14px] leading-[24px]">
 							An Avante support session just started on your ComputeBay
-							appliance. You allowed support access, so this is expected — but we
-							let you know every time, as promised.
+							appliance. You allowed support access, so this is expected — but
+							we let you know every time, as promised.
 						</Text>
 
 						<Section className="text-black text-[14px] leading-[24px] bg-[#F4F4F5] rounded-lg p-3">
@@ -67,8 +67,8 @@ export const ComputeBaySupportAccessEmail = ({
 						</Section>
 
 						<Text className="text-black text-[14px] leading-[24px] mt-4">
-							You can review every support session, or pause support access at any
-							time, from Settings → Support access.
+							You can review every support session, or pause support access at
+							any time, from Settings → Support access.
 						</Text>
 					</Container>
 				</Body>

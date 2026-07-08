@@ -436,7 +436,10 @@ export const sendHeartbeat = async (): Promise<void> => {
 		for (const app of apps) {
 			const prev = lastAppStatus.get(app.name);
 			if (app.status === "error" && prev !== "error") {
-				events.push({ kind: "error", label: `${app.name} entered error state` });
+				events.push({
+					kind: "error",
+					label: `${app.name} entered error state`,
+				});
 			} else if (app.status !== "error" && prev === "error") {
 				events.push({ kind: "success", label: `${app.name} recovered` });
 			}
@@ -451,7 +454,10 @@ export const sendHeartbeat = async (): Promise<void> => {
 				label: "cloudflared tunnel connector is not running",
 			});
 		} else if (lastCloudflaredUp === false && up) {
-			events.push({ kind: "success", label: "cloudflared tunnel connector recovered" });
+			events.push({
+				kind: "success",
+				label: "cloudflared tunnel connector recovered",
+			});
 		}
 		lastCloudflaredUp = up;
 	}

@@ -79,9 +79,12 @@ export const ShowSimpleSettings = () => {
 
 	const isManaged = config?.tier === "managed";
 
-	const { data: supportStatus } = api.supportSession.status.useQuery(undefined, {
-		enabled: isManaged,
-	});
+	const { data: supportStatus } = api.supportSession.status.useQuery(
+		undefined,
+		{
+			enabled: isManaged,
+		},
+	);
 	const { data: supportSessions } = api.supportSession.list.useQuery(
 		{ limit: 10 },
 		{ enabled: isManaged },

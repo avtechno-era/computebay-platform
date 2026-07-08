@@ -1,6 +1,9 @@
 import { db } from "@dokploy/server/db";
 import { environments, projects } from "@dokploy/server/db/schema";
-import { manageDomain, removeDomain } from "@dokploy/server/utils/traefik/domain";
+import {
+	manageDomain,
+	removeDomain,
+} from "@dokploy/server/utils/traefik/domain";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { findApplicationById } from "./application";

@@ -92,10 +92,13 @@ export const ShowSimpleHome = () => {
 
 	// Honest public-reachability status from the broker (§5.6). Managed only —
 	// self-host has no broker to ask, so we fall back to the stored tunnel flag.
-	const { data: tunnelHealth } = api.computebay.tunnelHealth.useQuery(undefined, {
-		enabled: isManaged,
-		refetchInterval: 60_000,
-	});
+	const { data: tunnelHealth } = api.computebay.tunnelHealth.useQuery(
+		undefined,
+		{
+			enabled: isManaged,
+			refetchInterval: 60_000,
+		},
+	);
 	const businessName = config?.businessName?.trim();
 	const now = new Date();
 	const greeting = greetingForHour(now.getHours());
@@ -252,50 +255,50 @@ export const ShowSimpleHome = () => {
 
 			{/* Finish-setup banner: shown until the appliance has an internet tunnel.
 				    Apps already work on the LAN, so this is an invitation, not a block. */}
-				{config && config.tunnelConfigured !== true && (
-					<button
-						type="button"
-						className="cb-card-hover"
-						onClick={() => router.push("/dashboard/simple/setup")}
-						style={{
-							marginTop: 20,
-							width: "100%",
-							textAlign: "left",
-							display: "flex",
-							alignItems: "center",
-							gap: 14,
-							border: "1px solid var(--cb-brand)",
-							borderRadius: 8,
-							background: "var(--cb-brand-muted)",
-							padding: "16px 20px",
-							cursor: "pointer",
-						}}
-					>
-						<div style={{ flex: 1 }}>
-							<div
-								style={{ fontWeight: 600, fontSize: 14, color: "var(--cb-text)" }}
-							>
-								Finish setting up your appliance
-							</div>
-							<div
-								style={{
-									fontSize: 12.5,
-									color: "var(--cb-text-muted)",
-									marginTop: 2,
-								}}
-							>
-								Connect it to the internet so your apps get a public address.
-								Your apps already work on your office network.
-							</div>
+			{config && config.tunnelConfigured !== true && (
+				<button
+					type="button"
+					className="cb-card-hover"
+					onClick={() => router.push("/dashboard/simple/setup")}
+					style={{
+						marginTop: 20,
+						width: "100%",
+						textAlign: "left",
+						display: "flex",
+						alignItems: "center",
+						gap: 14,
+						border: "1px solid var(--cb-brand)",
+						borderRadius: 8,
+						background: "var(--cb-brand-muted)",
+						padding: "16px 20px",
+						cursor: "pointer",
+					}}
+				>
+					<div style={{ flex: 1 }}>
+						<div
+							style={{ fontWeight: 600, fontSize: 14, color: "var(--cb-text)" }}
+						>
+							Finish setting up your appliance
 						</div>
-						<ArrowRight
-							size={18}
-							style={{ color: "var(--cb-brand)", flexShrink: 0 }}
-						/>
-					</button>
-				)}
+						<div
+							style={{
+								fontSize: 12.5,
+								color: "var(--cb-text-muted)",
+								marginTop: 2,
+							}}
+						>
+							Connect it to the internet so your apps get a public address. Your
+							apps already work on your office network.
+						</div>
+					</div>
+					<ArrowRight
+						size={18}
+						style={{ color: "var(--cb-brand)", flexShrink: 0 }}
+					/>
+				</button>
+			)}
 
-				{/* Health panel */}
+			{/* Health panel */}
 			<div
 				style={{
 					marginTop: 24,

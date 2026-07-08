@@ -64,7 +64,8 @@ const getGhcrPullToken = async (repo: string): Promise<string | null> => {
 
 /** Lists every tag for a GHCR repository, following registry pagination. */
 const listGhcrTags = async (repo: string, token: string): Promise<string[]> => {
-	let url: string | null = `https://${COMPUTEBAY_REGISTRY_HOST}/v2/${repo}/tags/list?n=100`;
+	let url: string | null =
+		`https://${COMPUTEBAY_REGISTRY_HOST}/v2/${repo}/tags/list?n=100`;
 	const tags: string[] = [];
 	while (url) {
 		const response: Response = await fetch(url, {

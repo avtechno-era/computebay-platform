@@ -152,7 +152,10 @@ export async function createTunnel(
 	const { result } = await cfFetch<{ id: string; token?: string }>(
 		token,
 		`/accounts/${accountId}/cfd_tunnel`,
-		{ method: "POST", body: JSON.stringify({ name, config_src: "cloudflare" }) },
+		{
+			method: "POST",
+			body: JSON.stringify({ name, config_src: "cloudflare" }),
+		},
 	);
 	const connectorToken =
 		result.token ?? (await getTunnelToken(token, accountId, result.id));

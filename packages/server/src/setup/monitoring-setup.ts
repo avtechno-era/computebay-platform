@@ -2,7 +2,10 @@ import { findServerById } from "@dokploy/server/services/server";
 import { getWebServerSettings } from "@dokploy/server/services/web-server-settings";
 import type { ContainerCreateOptions } from "dockerode";
 import { IS_CLOUD } from "../constants";
-import { getDokployImageTag, getMonitoringImageName } from "../services/settings";
+import {
+	getDokployImageTag,
+	getMonitoringImageName,
+} from "../services/settings";
 import { pullImage, pullRemoteImage } from "../utils/docker/utils";
 import { execAsync, execAsyncRemote } from "../utils/process/execAsync";
 import { getRemoteDocker } from "../utils/servers/remote-docker";

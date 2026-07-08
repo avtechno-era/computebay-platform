@@ -1,8 +1,5 @@
 import { db } from "@dokploy/server/db";
-import {
-	type SupportSession,
-	supportSession,
-} from "@dokploy/server/db/schema";
+import { type SupportSession, supportSession } from "@dokploy/server/db/schema";
 import { sendSupportAccessNotification } from "@dokploy/server/utils/notifications/support-access";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, isNull } from "drizzle-orm";

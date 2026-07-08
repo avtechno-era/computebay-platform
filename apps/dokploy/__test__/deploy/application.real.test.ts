@@ -17,6 +17,7 @@ vi.mock("@dokploy/server/db", () => {
 			returning: vi.fn().mockResolvedValue([{}]),
 			from: vi.fn(() => chain),
 			innerJoin: vi.fn(() => chain),
+			// biome-ignore lint/suspicious/noThenProperty: chain must be thenable so `await db.select()...` resolves without a terminal method
 			then: (resolve: (v: any) => void) => {
 				resolve([]);
 			},

@@ -207,9 +207,7 @@ export const ShowAppDetail = ({ appId }: { appId: string }) => {
 			await utils.computebay.customDomains.invalidate();
 			await utils.computebay.listApps.invalidate();
 		} catch (e) {
-			toast.error(
-				e instanceof Error ? e.message : "Couldn't add that domain",
-			);
+			toast.error(e instanceof Error ? e.message : "Couldn't add that domain");
 		}
 	};
 	const deleteCustomDomain = async (domainId: string, host: string) => {
