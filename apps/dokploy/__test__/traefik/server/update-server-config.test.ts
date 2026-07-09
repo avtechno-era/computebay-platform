@@ -82,6 +82,7 @@ const baseSettings: WebServerSettings = {
 		tunnelToken: null,
 		deviceToken: null,
 		tunnelId: null,
+		supportSigningSecret: null,
 	},
 	createdAt: null,
 	updatedAt: new Date(),

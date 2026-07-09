@@ -2,7 +2,10 @@ import { statfsSync } from "node:fs";
 import os from "node:os";
 import { db } from "@dokploy/server/db";
 import { TRPCError } from "@trpc/server";
+import { eq } from "drizzle-orm";
 import { scheduleJob } from "node-schedule";
+import { organization } from "../db/schema";
+import { auth } from "../lib/auth";
 import {
 	CloudflareApiError,
 	provisionSelfHostTunnel,
@@ -12,11 +15,17 @@ import {
 	isCloudflaredRunning,
 	stopCloudflared,
 } from "../setup/cloudflared-setup";
+import { updateServerTraefik } from "../utils/traefik/web-server";
+import { isAdminPresent } from "./admin";
 import {
 	type ComputeBayConfig,
 	getComputeBayConfig,
 	updateComputeBayConfig,
 } from "./computebay-config";
+import {
+	getWebServerSettings,
+	updateWebServerSettings,
+} from "./web-server-settings";
 
 // Where the tunnel's single catch-all ingress points: the appliance's Traefik on
 // the shared docker network. Matches the broker's managed-tier ingress target so
@@ -38,6 +47,9 @@ type BrokerActivation = {
 	wildcard_domain: string;
 	customer_slug: string;
 	device_token: string;
+	// Per-appliance HMAC secret used to verify the broker's one-time support-SSO
+	// tokens (see support-sso-plugin). Absent on older broker versions.
+	support_signing_secret?: string | null;
 } | null;
 
 // Avante-provisioned Dokploy admin login the appliance auto-creates from on
@@ -147,6 +159,45 @@ const collectApps = async (): Promise<HeartbeatApp[]> => {
 
 const normalizeBaseUrl = (url: string) => url.replace(/\/+$/, "");
 
+// The management interface (the Dokploy control-plane UI itself) is published at
+// this subdomain of the appliance's wildcard domain, e.g. dokploy.acme.computebay.app.
+// The tunnel's wildcard DNS already resolves it; all we add locally is a Traefik
+// router pointing that Host at the control-plane container.
+const MANAGEMENT_SUBDOMAIN = "dokploy";
+
+export const managementHost = (wildcardDomain: string) =>
+	`${MANAGEMENT_SUBDOMAIN}.${wildcardDomain}`;
+
+/**
+ * Publish the appliance's management interface at dokploy.<wildcardDomain>.
+ *
+ * cloudflared terminates TLS at Cloudflare's edge and forwards plain HTTP to
+ * Traefik's `web` entrypoint (:80), so the router is HTTP-only here — no
+ * Let's Encrypt, no https redirect. Writing the host into webServerSettings also
+ * lines the Settings → Server Domain screen up with reality. Best-effort: a
+ * failure to write the route never fails activation (the box is still reachable
+ * on its LAN address).
+ */
+export const ensureManagementRoute = async (
+	wildcardDomain: string | null,
+): Promise<void> => {
+	if (!wildcardDomain) return;
+	const host = managementHost(wildcardDomain);
+	try {
+		const settings =
+			(await updateWebServerSettings({
+				host,
+				https: false,
+				certificateType: "none",
+			})) ??
+			(await getWebServerSettings()) ??
+			null;
+		updateServerTraefik(settings, host);
+	} catch (err) {
+		console.log("Could not publish the management interface route", err);
+	}
+};
+
 const brokerError = (res: ActivateResponse | null, fallback: string) =>
 	new TRPCError({
 		code: "BAD_REQUEST",
@@ -233,8 +284,13 @@ export const activateManagedAppliance = async (params: {
 		customerSlug: activation.customer_slug,
 		tunnelToken: activation.tunnel_token,
 		deviceToken: activation.device_token,
+		supportSigningSecret: activation.support_signing_secret ?? null,
 		tunnelConfigured: true,
 	});
+
+	// Publish the management interface at dokploy.<domain> so support (and the
+	// owner) can reach the control-plane UI through the tunnel, not just the LAN.
+	await ensureManagementRoute(activation.wildcard_domain);
 
 	// Bring cloudflared up with the connector token. If the container can't start,
 	// the config is still saved (state is authoritative); report the failure so the
@@ -246,6 +302,78 @@ export const activateManagedAppliance = async (params: {
 	}
 
 	return { config, tunnelReady: true, admin };
+};
+
+/**
+ * Managed first-boot (spec §5.1): redeem the activation code against the broker
+ * and stand up the appliance's Dokploy admin from the login the broker
+ * provisioned — the customer never fills in a registration form. Shared by the
+ * public `setupManaged` tRPC route (browser-driven) and by headless install
+ * (CPB_ACTIVATION_CODE set on the container). No-op if an admin already exists.
+ *
+ * Returns the provisioned login so the caller can establish a session; the
+ * headless path ignores it (the box is set up, nobody is waiting at a browser).
+ */
+export const performManagedFirstBoot = async (params: {
+	activationCode: string;
+	brokerBaseUrl: string;
+	serialNumber?: string;
+}): Promise<{
+	tunnelReady: boolean;
+	adminEmail: string;
+	adminPassword: string;
+} | null> => {
+	if (await isAdminPresent()) return null;
+
+	const result = await activateManagedAppliance(params);
+	const admin = result.admin;
+	if (!admin?.email || !admin.password) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message:
+				"The broker activated this appliance but returned no login credentials",
+		});
+	}
+
+	// Create the first admin from the broker-provisioned login. This triggers the
+	// better-auth user.create hooks that build the org + owner member.
+	try {
+		await auth.signUpEmail({
+			body: {
+				email: admin.email,
+				password: admin.password,
+				name: admin.owner_name || admin.business_name || "Administrator",
+			},
+		});
+	} catch (err) {
+		throw new TRPCError({
+			code: "INTERNAL_SERVER_ERROR",
+			message:
+				err instanceof Error
+					? err.message
+					: "Could not create the appliance administrator",
+		});
+	}
+
+	// The rest of the fields the simplified wizard hides come from Fleet Manager's
+	// record: name the org after the business and store the profile.
+	if (admin.business_name) {
+		try {
+			await db
+				.update(organization)
+				.set({ name: admin.business_name })
+				.where(eq(organization.name, "My Organization"));
+		} catch {
+			// Cosmetic — never fail setup over the org label.
+		}
+		await updateComputeBayConfig({ businessName: admin.business_name });
+	}
+
+	return {
+		tunnelReady: result.tunnelReady,
+		adminEmail: admin.email,
+		adminPassword: admin.password,
+	};
 };
 
 // --- Self-host activation (no broker) ---------------------------------------
@@ -312,6 +440,10 @@ export const activateSelfHostAppliance = async (params: {
 		tunnelId: provisioned.tunnelId,
 		tunnelConfigured: true,
 	});
+
+	// Same public management route as managed — self-host owners reach their
+	// control-plane UI at dokploy.<domain> through their own tunnel.
+	await ensureManagementRoute(provisioned.wildcardDomain);
 
 	try {
 		await initializeCloudflared(provisioned.tunnelToken);
@@ -505,6 +637,32 @@ export const teardownTunnel = async (): Promise<void> => {
 
 const HEARTBEAT_JOB_NAME = "computebay-heartbeat";
 
+// Headless managed activation (spec §5.1). When the installer bakes an activation
+// code into the container env (CPB_ACTIVATION_CODE), the appliance activates
+// itself on first boot instead of waiting for someone to paste the code in the
+// browser. The broker URL mirrors the setup UI's default.
+const HEADLESS_BROKER_URL =
+	process.env.CPB_BROKER_URL ||
+	process.env.NEXT_PUBLIC_COMPUTEBAY_BROKER_URL ||
+	"https://fleet.computebay.app";
+
+const maybeHeadlessActivate = async (): Promise<void> => {
+	const code = process.env.CPB_ACTIVATION_CODE?.trim();
+	if (!code) return;
+	if (await isAdminPresent()) return; // already set up — nothing to do
+	try {
+		await performManagedFirstBoot({
+			activationCode: code,
+			brokerBaseUrl: HEADLESS_BROKER_URL,
+		});
+		console.log("ComputeBay: headless activation succeeded ✅");
+	} catch (err) {
+		// Best-effort: a failed headless activation leaves a virgin box the owner
+		// can still finish in the browser. Don't crash the server over it.
+		console.log("ComputeBay: headless activation failed", err);
+	}
+};
+
 /**
  * Boot-time tunnel wiring for the appliance. Called once during server startup
  * (production, non-cloud). On a managed, activated appliance it makes sure
@@ -513,7 +671,18 @@ const HEARTBEAT_JOB_NAME = "computebay-heartbeat";
  * self-host or not-yet-activated appliances.
  */
 export const initComputeBayTunnel = async (): Promise<void> => {
+	// Self-activate first if a code was baked into the container env, so the rest
+	// of this function sees the freshly-persisted tunnel config.
+	await maybeHeadlessActivate();
+
 	const config = await getComputeBayConfig();
+
+	// Re-assert the management-interface route on every boot — the Traefik dynamic
+	// config lives on the host bind-mount and may predate this feature or have been
+	// cleared. Cheap and idempotent.
+	if (config.tunnelConfigured && config.wildcardDomain) {
+		await ensureManagementRoute(config.wildcardDomain);
+	}
 
 	// Restart cloudflared with the stored connector token if a tunnel is
 	// configured — the host may have rebooted. Applies to both managed and

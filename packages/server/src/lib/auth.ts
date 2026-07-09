@@ -28,6 +28,7 @@ import {
 import { getPublicIpWithFallback } from "../wss/utils";
 import { ac, adminRole, memberRole, ownerRole } from "./access-control";
 import { betterAuthSecret } from "./auth-secret";
+import { computebaySupportSso } from "./support-sso-plugin";
 
 const { handler, api } = betterAuth({
 	database: drizzleAdapter(db, {
@@ -419,6 +420,8 @@ const { handler, api } = betterAuth({
 					}),
 				]
 			: []),
+		// ComputeBay: broker-signed one-time support login (dokploy.<domain> SSO).
+		computebaySupportSso(),
 	],
 });
 

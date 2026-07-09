@@ -128,6 +128,11 @@ export const webServerSettings = pgTable("webServerSettings", {
 			tunnelToken: string | null;
 			deviceToken: string | null;
 			tunnelId: string | null;
+			// Per-appliance HMAC secret the broker uses to sign one-time support
+			// SSO tokens that log an operator into this box's management interface
+			// (dokploy.<domain>). Established once at managed activation and never
+			// leaves the appliance again; self-host boxes never have one.
+			supportSigningSecret: string | null;
 		}>()
 		.notNull()
 		.default({
@@ -145,6 +150,7 @@ export const webServerSettings = pgTable("webServerSettings", {
 			tunnelToken: null,
 			deviceToken: null,
 			tunnelId: null,
+			supportSigningSecret: null,
 		}),
 	// Cache Cleanup Configuration
 	cleanupCacheApplications: boolean("cleanupCacheApplications")
@@ -185,6 +191,7 @@ export const computeBayConfigSchema = z.object({
 	tunnelToken: z.string().nullable(),
 	deviceToken: z.string().nullable(),
 	tunnelId: z.string().nullable(),
+	supportSigningSecret: z.string().nullable(),
 });
 
 // The "Interface" settings subsection (§5.13) — the only computeBay fields a

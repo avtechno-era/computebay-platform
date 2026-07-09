@@ -24,6 +24,7 @@ export const DEFAULT_COMPUTE_BAY_CONFIG: ComputeBayConfig = {
 	tunnelToken: null,
 	deviceToken: null,
 	tunnelId: null,
+	supportSigningSecret: null,
 };
 
 /**
