@@ -223,7 +223,7 @@ export const ShowSimpleSetup = () => {
 									id="broker-address"
 									value={brokerUrl}
 									onChange={(e) => setBrokerUrl(e.target.value)}
-									placeholder="https://fleet.computebay.app"
+									placeholder="https://fleet-svc.computebay.app/api"
 									style={inputStyle}
 								/>
 								<div style={hintStyle}>

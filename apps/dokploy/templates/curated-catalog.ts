@@ -30,6 +30,14 @@ export interface CuratedApp {
 	desc: string;
 	/** e.g. "~500 MB RAM · 2 GB disk". */
 	resource: string;
+	/**
+	 * Registry the install reads from. `"computebay"` items come from the Fleet
+	 * Manager catalog (install by `id`/slug); omitted/`"dokploy"` for the baked-in
+	 * fallback entries that install from the public Dokploy registry by `templateId`.
+	 */
+	source?: "computebay" | "dokploy";
+	/** Partner-endorsed badge (FM-sourced entries may set this). */
+	partner?: boolean;
 }
 
 export interface PartnerApp extends CuratedApp {

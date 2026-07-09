@@ -644,7 +644,7 @@ const HEARTBEAT_JOB_NAME = "computebay-heartbeat";
 const HEADLESS_BROKER_URL =
 	process.env.CPB_BROKER_URL ||
 	process.env.NEXT_PUBLIC_COMPUTEBAY_BROKER_URL ||
-	"https://fleet.computebay.app";
+	"https://fleet-svc.computebay.app/api";
 
 const maybeHeadlessActivate = async (): Promise<void> => {
 	const code = process.env.CPB_ACTIVATION_CODE?.trim();

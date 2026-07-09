@@ -18,6 +18,7 @@ import {
 	removeCustomDomain,
 	setAppExposure,
 } from "@dokploy/server/services/computebay-apps";
+import { fetchComputebayCatalog } from "@dokploy/server/services/computebay-catalog";
 import {
 	getComputeBayConfig,
 	updateComputeBayConfig,
@@ -52,6 +53,14 @@ export const computebayRouter = createTRPCRouter({
 	// Flat list of installed apps across the appliance (spec §5.4).
 	listApps: protectedProcedure.query(async ({ ctx }) => {
 		return await listSimpleApps(ctx.session.activeOrganizationId);
+	}),
+
+	// The curated catalog authored in Fleet Manager (spec §5.2). Managed
+	// appliances read it from their broker (device-authed); self-host reads the
+	// public mirror. The Simple catalog falls back to the baked-in static list
+	// when the registry is unreachable (offline / first boot).
+	catalog: protectedProcedure.query(async () => {
+		return await fetchComputebayCatalog();
 	}),
 
 	// Resolve (creating if needed) the environment a curated install targets.

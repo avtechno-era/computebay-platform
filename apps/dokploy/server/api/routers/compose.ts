@@ -33,6 +33,7 @@ import {
 	updateDeploymentStatus,
 } from "@dokploy/server";
 import { db } from "@dokploy/server/db";
+import { fetchComputebayTemplate } from "@dokploy/server/services/computebay-catalog";
 import { canEditDeployGitSource } from "@dokploy/server/services/git-provider";
 import {
 	addNewService,
@@ -580,6 +581,9 @@ export const composeRouter = createTRPCRouter({
 				serverId: z.string().optional(),
 				id: z.string(),
 				baseUrl: z.string().optional(),
+				// "computebay" installs from the Fleet Manager catalog registry
+				// (curated apps); the default reads the public Dokploy registry.
+				source: z.enum(["dokploy", "computebay"]).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -608,7 +612,10 @@ export const composeRouter = createTRPCRouter({
 				}
 			}
 
-			const template = await fetchTemplateFiles(input.id, input.baseUrl);
+			const template =
+				input.source === "computebay"
+					? await fetchComputebayTemplate(input.id)
+					: await fetchTemplateFiles(input.id, input.baseUrl);
 
 			let serverIp = "127.0.0.1";
 
