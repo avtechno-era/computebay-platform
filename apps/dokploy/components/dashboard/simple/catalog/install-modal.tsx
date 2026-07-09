@@ -47,6 +47,7 @@ export const InstallModal = ({
 			const compose = await deployTemplate.mutateAsync({
 				environmentId,
 				id: app.templateId,
+				source: app.source,
 			});
 			if (exposure === "lan") {
 				await setExposureMut.mutateAsync({
@@ -129,7 +130,7 @@ export const InstallModal = ({
 					>
 						{isPublic
 							? "Available on the internet at the address below. Make sure the app has a strong password."
-							: "Anyone connected to this Wi-Fi can open the app. Not reachable from outside."}
+							: "Anyone connected to your network can open the app. Not reachable from outside."}
 					</div>
 				</div>
 			</button>

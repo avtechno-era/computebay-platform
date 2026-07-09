@@ -18,6 +18,11 @@ export const ShowCatalog = () => {
 	const [installTarget, setInstallTarget] = useState<CuratedApp | null>(null);
 	const { setMode } = useShellMode();
 	const { data: apps } = api.computebay.listApps.useQuery();
+	// Curated list authored in Fleet Manager. Falls back to the baked-in static
+	// list when the broker/mirror is unreachable (offline / first boot).
+	const { data: fmCatalog } = api.computebay.catalog.useQuery();
+	const curatedApps: CuratedApp[] =
+		fmCatalog && fmCatalog.length > 0 ? fmCatalog : CURATED_APPS;
 
 	const installedNames = new Set((apps ?? []).map((a) => a.name.toLowerCase()));
 	const isInstalled = (name: string) => installedNames.has(name.toLowerCase());
@@ -119,7 +124,7 @@ export const ShowCatalog = () => {
 						gap: 16,
 					}}
 				>
-					{CURATED_APPS.map((c) => {
+					{curatedApps.map((c) => {
 						const installed = isInstalled(c.name);
 						return (
 							<div
