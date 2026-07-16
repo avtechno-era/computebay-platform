@@ -31,6 +31,18 @@ export const InstallModal = ({
 	const setExposureMut = api.computebay.setExposure.useMutation();
 
 	const wildcard = config?.wildcardDomain ?? "your-appliance.computebay.app";
+
+	// Author-defined exposed services (computebay entries). The customer may edit
+	// the subdomain per service; the port is fixed by the author.
+	const domains = app.domains ?? [];
+	const hasDomains = domains.length > 0;
+	const [subdomains, setSubdomains] = useState<string[]>(() =>
+		domains.map((d) => d.subdomain),
+	);
+	const setSubdomain = (i: number, value: string) =>
+		setSubdomains((prev) => prev.map((s, idx) => (idx === i ? value : s)));
+
+	// Fallback preview for baked-in apps that carry no authored domains.
 	const previewUrl =
 		exposure === "public"
 			? `${slugify(app.name)}.${wildcard}`
@@ -48,6 +60,12 @@ export const InstallModal = ({
 				environmentId,
 				id: app.templateId,
 				source: app.source,
+				domainOverrides: hasDomains
+					? domains.map((d, i) => ({
+							serviceName: d.serviceName,
+							subdomain: (subdomains[i] || d.subdomain).trim(),
+						}))
+					: undefined,
 			});
 			if (exposure === "lan") {
 				await setExposureMut.mutateAsync({
@@ -249,41 +267,120 @@ export const InstallModal = ({
 						{choice("public")}
 					</div>
 
-					{/* Address preview */}
-					<div
-						style={{
-							marginTop: 18,
-							padding: "12px 16px",
-							background: "var(--cb-surface)",
-							borderRadius: 8,
-							border: "1px solid var(--cb-border-subtle)",
-							display: "flex",
-							alignItems: "center",
-							gap: 12,
-						}}
-					>
-						<LinkIcon
-							size={14}
-							style={{ color: "var(--cb-text-muted)", flexShrink: 0 }}
-						/>
-						<div style={{ flex: 1, minWidth: 0 }}>
-							<div className="cb-eyebrow">It will be at</div>
+					{/* Web addresses — one per exposed service. Subdomain is editable,
+					    the service/port binding is fixed by the app author. */}
+					{hasDomains ? (
+						<div
+							style={{
+								marginTop: 18,
+								padding: "12px 16px",
+								background: "var(--cb-surface)",
+								borderRadius: 8,
+								border: "1px solid var(--cb-border-subtle)",
+							}}
+						>
 							<div
-								className="cb-mono"
+								className="cb-eyebrow"
+								style={{ display: "flex", alignItems: "center", gap: 8 }}
+							>
+								<LinkIcon size={14} style={{ color: "var(--cb-text-muted)" }} />
+								{exposure === "public"
+									? "It will be at"
+									: "On this Wi-Fi it will be at"}
+							</div>
+							<div
 								style={{
-									fontWeight: 500,
-									fontSize: 13,
-									color: "var(--cb-text)",
-									marginTop: 2,
-									overflow: "hidden",
-									textOverflow: "ellipsis",
-									whiteSpace: "nowrap",
+									display: "flex",
+									flexDirection: "column",
+									gap: 8,
+									marginTop: 10,
 								}}
 							>
-								{previewUrl}
+								{domains.map((d, i) => (
+									<div
+										key={`${d.serviceName}-${i}`}
+										style={{ display: "flex", alignItems: "center", gap: 8 }}
+									>
+										<input
+											value={subdomains[i] ?? ""}
+											onChange={(e) => setSubdomain(i, e.target.value)}
+											className="cb-mono"
+											style={{
+												width: 130,
+												padding: "6px 8px",
+												fontSize: 12,
+												textAlign: "right",
+												borderRadius: 6,
+												border: "1px solid var(--cb-border)",
+												background: "var(--cb-bg)",
+												color: "var(--cb-text)",
+											}}
+										/>
+										<span
+											className="cb-mono"
+											style={{
+												fontSize: 12,
+												color: "var(--cb-text-muted)",
+												overflow: "hidden",
+												textOverflow: "ellipsis",
+												whiteSpace: "nowrap",
+											}}
+										>
+											.{wildcard}
+										</span>
+										{domains.length > 1 && (
+											<span
+												className="cb-mono"
+												style={{
+													marginLeft: "auto",
+													fontSize: 11,
+													color: "var(--cb-text-muted)",
+													flexShrink: 0,
+												}}
+											>
+												→ {d.serviceName}:{d.port}
+											</span>
+										)}
+									</div>
+								))}
 							</div>
 						</div>
-					</div>
+					) : (
+						<div
+							style={{
+								marginTop: 18,
+								padding: "12px 16px",
+								background: "var(--cb-surface)",
+								borderRadius: 8,
+								border: "1px solid var(--cb-border-subtle)",
+								display: "flex",
+								alignItems: "center",
+								gap: 12,
+							}}
+						>
+							<LinkIcon
+								size={14}
+								style={{ color: "var(--cb-text-muted)", flexShrink: 0 }}
+							/>
+							<div style={{ flex: 1, minWidth: 0 }}>
+								<div className="cb-eyebrow">It will be at</div>
+								<div
+									className="cb-mono"
+									style={{
+										fontWeight: 500,
+										fontSize: 13,
+										color: "var(--cb-text)",
+										marginTop: 2,
+										overflow: "hidden",
+										textOverflow: "ellipsis",
+										whiteSpace: "nowrap",
+									}}
+								>
+									{previewUrl}
+								</div>
+							</div>
+						</div>
+					)}
 				</div>
 
 				{/* Footer */}

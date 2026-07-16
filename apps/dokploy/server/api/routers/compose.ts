@@ -34,6 +34,7 @@ import {
 } from "@dokploy/server";
 import { db } from "@dokploy/server/db";
 import { fetchComputebayTemplate } from "@dokploy/server/services/computebay-catalog";
+import { getComputeBayConfig } from "@dokploy/server/services/computebay-config";
 import { canEditDeployGitSource } from "@dokploy/server/services/git-provider";
 import {
 	addNewService,
@@ -584,6 +585,16 @@ export const composeRouter = createTRPCRouter({
 				// "computebay" installs from the Fleet Manager catalog registry
 				// (curated apps); the default reads the public Dokploy registry.
 				source: z.enum(["dokploy", "computebay"]).optional(),
+				// Per-service subdomain overrides the customer chose at install
+				// (computebay only). The port stays fixed by the app author.
+				domainOverrides: z
+					.array(
+						z.object({
+							serviceName: z.string().min(1),
+							subdomain: z.string().min(1),
+						}),
+					)
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -640,10 +651,46 @@ export const composeRouter = createTRPCRouter({
 					...template.config.variables,
 				},
 			};
+
+			// ComputeBay curated installs ride the appliance's own wildcard domain:
+			// hosts become `<subdomain>.<wildcardDomain>` (the author's subdomain, or
+			// the customer's override) instead of the public sslip.io fallback, and
+			// `${domain}` env tokens resolve under the same domain.
+			const wildcardDomain =
+				input.source === "computebay"
+					? ((await getComputeBayConfig()).wildcardDomain ?? null)
+					: null;
+
 			const generate = processTemplate(config, {
 				serverIp: serverIp,
 				projectName: projectName,
+				wildcardDomain,
 			});
+
+			// For curated installs, resolve each authored domain to its final host
+			// (`<subdomain>.<wildcardDomain>`), applying the per-service override. The
+			// port stays exactly as the author published it.
+			const finalDomains =
+				input.source === "computebay" && wildcardDomain
+					? (template.config.config?.domains ?? []).map((domain) => {
+							const override = input.domainOverrides?.find(
+								(o) => o.serviceName === domain.serviceName,
+							);
+							const subdomain = (
+								override?.subdomain ??
+								domain.subdomain ??
+								""
+							).trim();
+							return {
+								serviceName: domain.serviceName,
+								port: domain.port,
+								...(domain.path ? { path: domain.path } : {}),
+								host: subdomain
+									? `${subdomain}.${wildcardDomain}`
+									: `${projectName}.${wildcardDomain}`,
+							};
+						})
+					: generate.domains;
 
 			const compose = await createComposeByTemplate({
 				...input,
@@ -671,8 +718,8 @@ export const composeRouter = createTRPCRouter({
 				}
 			}
 
-			if (generate.domains && generate.domains?.length > 0) {
-				for (const domain of generate.domains) {
+			if (finalDomains && finalDomains?.length > 0) {
+				for (const domain of finalDomains) {
 					await createDomain({
 						...domain,
 						domainType: "compose",
