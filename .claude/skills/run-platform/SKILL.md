@@ -9,11 +9,19 @@ Playwright REPL at `.claude/skills/run-platform/driver.mjs` — no `chromium-cli
 available in this environment, so the driver talks to `playwright` directly. All paths below are
 relative to `platform/`.
 
-**Before doing a fresh `dokploy:setup`, check if the app is already running** (`curl -s -o
-/dev/null -w '%{http_code}' http://localhost:3000` — a `307` means it's already up). `dokploy:setup`
-runs `docker swarm init` on the real Docker daemon and publishes host ports `80`/`81`/`443`/`5432`/`6379`
-— it mutates real, shared Docker state, not something scoped to a container. If an instance is
-already live, drive that one instead of tearing it down.
+**On this side-by-side checkout, `:3000` is usually the sibling `site/` (Nuxt) dev server, not
+platform.** Both default to `PORT=3000`, so don't trust a bare `curl :3000` to tell you whether
+platform is up — a `200` there is very likely the marketing site's SPA (its 404 page shows a Nuxt
+logo and 404s on `/register`). The reliable tell for *platform* is `/register` (or `/`, which a
+provisioned instance `307`-redirects to `/welcome`). Simplest is to just run platform on its own
+port: `PORT=3001 pnpm run dokploy:dev` and drive it with `BASE_URL=http://localhost:3001`.
+
+**`dokploy:setup` is already done on this machine — do not re-run it.** The stack containers
+(`dokploy-postgres`, `dokploy-redis`, `dokploy-traefik`) are long-running under the **`default`**
+Docker context (`docker ps` shows them; `docker ps` under `desktop-linux` does *not*). `dokploy:setup`
+runs `docker swarm init` and publishes host ports `80`/`81`/`443`/`5432`/`6379` — real, shared
+Docker state, already provisioned here. If the app 500s with `relation "member" does not exist`, the
+DB schema is just un-migrated: run `pnpm run migration:run` (below), **not** the full setup.
 
 ## Prerequisites
 
@@ -22,9 +30,11 @@ already live, drive that one instead of tearing it down.
 source ~/.nvm/nvm.sh && nvm install 24.4.0 && nvm use 24.4.0
 corepack enable && corepack prepare pnpm@10.22.0 --activate
 
-# If Docker is Docker Desktop (check: `docker context ls` shows `desktop-linux`), the setup
-# script's dockerode calls need this or they'll hit the wrong socket:
-export DOCKER_HOST="unix://$HOME/.docker/desktop/docker.sock"
+# The dokploy stack here runs under the `default` Docker context (`unix:///var/run/docker.sock`),
+# which is readable in this environment — `docker ps` and the app's `localhost:5432` DB both work
+# without any override. Only set DOCKER_HOST if you actually need to target a different daemon
+# (e.g. Docker Desktop's socket at ~/.docker/desktop/docker.sock) for a from-scratch `dokploy:setup`.
+export DOCKER_HOST="unix:///var/run/docker.sock"   # matches where the running stack lives
 
 # Driver dependencies (Playwright), installed once inside the skill dir:
 cd .claude/skills/run-platform && npm install && npx playwright install chromium && cd -
@@ -32,10 +42,20 @@ cd .claude/skills/run-platform && npm install && npx playwright install chromium
 
 ## Setup / Build
 
+On this machine deps are already installed, `apps/dokploy/.env` exists, `packages/server` is already
+switched to `src/` (its `package.json` `main` is `./src/index.ts`), and the stack is provisioned — so
+the only setup step that was actually needed this session was running migrations against the empty DB:
+
+```bash
+cd apps/dokploy && pnpm run migration:run && cd -   # applies the Drizzle schema to dokploy-postgres
+```
+
+Full from-scratch setup, only if starting on a truly clean box (see the swarm/ports warning above):
+
 ```bash
 pnpm install
 cp apps/dokploy/.env.example apps/dokploy/.env
-pnpm run dokploy:setup     # docker swarm init + deploys dokploy-postgres/redis/traefik — see warning above
+pnpm run dokploy:setup     # docker swarm init + deploys dokploy-postgres/redis/traefik + runs migrations
 pnpm run server:script     # switches packages/server to import from src/ for dev
 ```
 
@@ -47,35 +67,56 @@ pnpm --filter dokploy run typecheck   # tsc --noEmit — clean
 
 ## Run (agent path)
 
-If nothing's listening on `:3000` yet, start the dev server (`pnpm run dokploy:dev`, see Run
-(human path)) and wait for it before driving it. Then pipe a command script into the driver —
-**no tmux in this environment**, so use a heredoc rather than `send-keys`/`capture-pane`; each line
-runs against a single shared browser/page instance kept alive for the whole piped script:
+Start the dev server on a free port (`:3000` is taken by the sibling `site/` here — see top warning),
+wait for it, then drive it with a matching `BASE_URL`. Launch it in the background:
 
 ```bash
-node .claude/skills/run-platform/driver.mjs <<'EOF'
+PORT=3001 DOCKER_HOST=unix:///var/run/docker.sock pnpm run dokploy:dev   # under Node 24.4.0
+```
+
+Wait until it answers (first `/` compile takes a few seconds; a provisioned instance returns `307`):
+
+```bash
+for i in $(seq 1 60); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3001)
+  [ "$code" != "000" ] && echo "up → $code" && break; sleep 2
+done
+```
+
+Then pipe a command script into the driver — **no tmux in this environment**, so use a heredoc rather
+than `send-keys`/`capture-pane`; each line runs against a single shared browser/page instance kept
+alive for the whole piped script:
+
+```bash
+BASE_URL=http://localhost:3001 node .claude/skills/run-platform/driver.mjs <<'EOF'
 launch
+nav /
+url
 nav /register
 wait-for input[name="email"]
-ss 01-register
+ss 02-register
 console --errors
 quit
 EOF
 ```
 
-This is a real, verified transcript from this session:
+This is a real, verified transcript from this session (against the migrated instance on `:3001`):
 
 ```
 platform driver — "help" for commands, "launch" to start, then "nav /register"
 driver> launched.
-driver> nav http://localhost:3000/register → 200
+driver> nav http://localhost:3001/ → 200
+driver> http://localhost:3001/welcome
+driver> nav http://localhost:3001/register → 200
 driver> found: input[name="email"]
-driver> screenshot: /tmp/shots/01-register.png
-driver> no console errors
+driver> screenshot: /tmp/shots/02-register.png
+driver> [0] Refused to execute script from '.../_clientMiddlewareManifest.js' because its MIME type ...
 ```
 
-Screenshots land in `/tmp/shots/` (override with `SCREENSHOT_DIR`). `BASE_URL` defaults to
-`http://localhost:3000` (override for a different port).
+The `/register` screen renders the Dokploy "Setup the server" form (First/Last name, Email, Password,
+Confirm, Register). The `_clientMiddlewareManifest.js` MIME console error is a benign Next.js
+dev-mode artifact — not something to chase. Screenshots land in `/tmp/shots/` (override with
+`SCREENSHOT_DIR`). `BASE_URL` defaults to `http://localhost:3000`, so set it explicitly to your port.
 
 If you need iterative back-and-forth (not just a fixed script), install tmux and wrap the same
 launch command with `send-keys`/`capture-pane`, polling for `driver>` between commands — the
@@ -102,10 +143,11 @@ driver itself doesn't care which way it's fed lines.
 ## Run (human path)
 
 ```bash
-pnpm run dokploy:dev   # → http://localhost:3000, Ctrl-C to stop
+PORT=3001 pnpm run dokploy:dev   # → http://localhost:3001, Ctrl-C to stop (avoid :3000, see below)
 ```
 
-A fresh instance redirects `/` → `/register` (`307`) to create the first admin account.
+A provisioned-but-unregistered instance `307`-redirects `/` → `/welcome` (a ComputeBay activation
+screen); `/register` reaches the "Setup the server" form directly to create the first admin account.
 
 ## Test
 
@@ -113,23 +155,32 @@ A fresh instance redirects `/` → `/register` (`307`) to create the first admin
 pnpm --filter dokploy run test   # vitest
 ```
 
-Verified this session: **514 passed, 4 failed (of 519)**, all 4 failures in
-`__test__/deploy/application.real.test.ts` — that suite does *real* `git clone` against GitHub and
-*real* Docker builds. It needs outbound network access and a Docker socket the current user can
-write to; in this environment that socket check failed with `connect EACCES /var/run/docker.sock`
-(native `default` docker context, not the `desktop-linux` one `docker ps` normally talks to). Don't
-treat those 4 as a regression signal unless your environment actually has that access.
+Verified this session: **526 passed, 3 failed, 1 skipped (of 530)**, all 3 failures isolated to
+`__test__/deploy/application.real.test.ts` (the other 53 test files pass clean). That suite does
+*real* `git clone` against GitHub and *real* nixpacks/Docker builds — it needs outbound network and a
+working build toolchain against a writable Docker socket. The exact failure is environment-dependent
+(this session the nixpacks build step failed; an earlier run hit `connect EACCES /var/run/docker.sock`
+instead). Don't treat those 3 as a regression signal unless your environment can actually run real
+clones and image builds. Run with `DOCKER_HOST=unix:///var/run/docker.sock` so the suite targets the
+`default`-context daemon where the stack lives.
 
 ## Gotchas
 
-- **Don't assume you need to launch platform from scratch.** It may already be running (see the
-  warning at the top) — `docker ps` under the `desktop-linux` context won't show it if it was
-  started under a different Docker context/devcontainer; check the port directly instead of
-  trusting `docker ps`.
-- **`dokploy:setup` is not scoped to this repo.** It runs `docker swarm init` on the real daemon
-  and binds host ports `80/81/443/5432/6379`. Reversible (`docker swarm leave --force`) but
-  disruptive to whatever else uses those ports — confirm with whoever owns the machine before
-  running it against a real dev box.
+- **`:3000` is the sibling `site/` marketing app, not platform.** Both dev servers default to
+  `PORT=3000` on this side-by-side checkout. A `200` on `:3000` with a Nuxt-logo 404 page (and
+  `/register` 404ing) is `site/`. Run platform on `PORT=3001` and drive with a matching `BASE_URL`.
+- **The stack is on the `default` Docker context, not `desktop-linux`.** `docker ps` under
+  `desktop-linux` shows nothing; the running `dokploy-postgres`/`redis`/`traefik` (up for days)
+  appear under `default` (`/var/run/docker.sock`). Don't conclude the stack is down from an empty
+  `desktop-linux` listing.
+- **`relation "member" does not exist` (app 500s on `/`) = un-migrated DB, not broken setup.** The
+  Postgres container can be up with an empty schema. Fix is `cd apps/dokploy && pnpm run
+  migration:run` — do *not* re-run `dokploy:setup`.
+- **`dokploy:setup` is already applied here — and is not scoped to this repo.** The swarm + stack
+  containers are already up (see above), so you should not need it. If you ever do run it fresh, it
+  runs `docker swarm init` on the real daemon and binds host ports `80/81/443/5432/6379`. Reversible
+  (`docker swarm leave --force`) but disruptive to whatever else uses those ports — confirm with
+  whoever owns the machine first.
 - **No `tmux` in this environment.** The heredoc-into-stdin pattern above is the verified path;
   the driver's readline loop serializes commands via an internal promise queue specifically so a
   fast-piped heredoc doesn't race ahead of `launch`/`nav` before they resolve.
@@ -142,9 +193,13 @@ treat those 4 as a regression signal unless your environment actually has that a
 
 ## Troubleshooting
 
-- **`connect EACCES /var/run/docker.sock`** in tests: the current user can't write to the native
-  Docker socket (only the Docker Desktop socket at `~/.docker/desktop/docker.sock` is writable).
-  Expected in this environment for the 4 `application.real.test.ts` cases — not a bug to chase.
+- **`__test__/deploy/application.real.test.ts` failures** (3 of 530 this session): this is the only
+  suite that does real git clones + real image builds. It fails whenever the environment can't do
+  that — a build-toolchain/network failure (this session) or `connect EACCES /var/run/docker.sock` if
+  the user can't write the socket (an earlier session). Not a bug to chase; the other 526 tests
+  passing is the signal that matters.
+- **App 500s with `relation "member" does not exist`**: the DB schema isn't migrated. `cd
+  apps/dokploy && pnpm run migration:run` (needs Node 24.4.0), then reload. Not a setup failure.
 - **Driver commands print nothing / hang until timeout when piped via heredoc**: make sure you're
   on a driver.mjs version whose `rl.on('close', ...)` awaits the internal command queue before
   quitting — otherwise EOF-on-heredoc fires `close` (and exits) before `launch`/`nav` finish.

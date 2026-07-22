@@ -42,6 +42,7 @@ import {
 	checkServicePermissionAndAccess,
 	findMemberByUserId,
 } from "@dokploy/server/services/permission";
+import { CX_DOMAIN_TOKEN } from "@dokploy/server/templates";
 import {
 	type CompleteTemplate,
 	fetchTemplateFiles,
@@ -692,10 +693,36 @@ export const composeRouter = createTRPCRouter({
 						})
 					: generate.domains;
 
+			// ComputeBay: `${CX_DOMAIN}` is the appliance's base domain. In env values
+			// it was already substituted above by `processTemplate`; in the compose
+			// file it survives untouched (the compose is passed through raw) and is
+			// substituted at deploy time by Docker Compose, which reads the `.env`
+			// we write beside the stack. Publishing it as a real env var is what
+			// wires up that second path.
+			//
+			// Without a wildcard domain — the upstream "Advanced" template path, or
+			// an appliance whose tunnel isn't provisioned yet — Compose would expand
+			// the token to an empty string and only warn, deploying an app with
+			// silently broken URLs. Fail loudly instead.
+			const usesCxDomain = template.dockerCompose?.includes(
+				`\${${CX_DOMAIN_TOKEN}}`,
+			);
+			if (usesCxDomain && !wildcardDomain) {
+				throw new TRPCError({
+					code: "PRECONDITION_FAILED",
+					message: `This app's compose file uses \${${CX_DOMAIN_TOKEN}}, but this appliance has no domain yet. Finish activation so the appliance gets its domain, then install again.`,
+				});
+			}
+
+			const envs = [...(generate.envs ?? [])];
+			if (wildcardDomain) {
+				envs.unshift(`${CX_DOMAIN_TOKEN}=${wildcardDomain}`);
+			}
+
 			const compose = await createComposeByTemplate({
 				...input,
 				composeFile: template.dockerCompose,
-				env: generate.envs?.join("\n"),
+				env: envs.join("\n"),
 				serverId: input.serverId,
 				name: input.id,
 				sourceType: "raw",

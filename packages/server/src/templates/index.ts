@@ -14,6 +14,18 @@ export interface Schema {
 	wildcardDomain?: string | null;
 }
 
+/**
+ * ComputeBay: token resolving to the appliance's own base domain.
+ *
+ * Catalog authors write `${CX_DOMAIN}` in either the compose file or an env
+ * value and get the same bare domain in both, but via two different engines:
+ * env values are substituted at install time by `processValue`, while the
+ * compose file is passed through untouched and substituted at deploy time by
+ * Docker Compose itself, from the `CX_DOMAIN` entry written into the stack's
+ * `.env`. Both paths must stay in sync, so the name lives here.
+ */
+export const CX_DOMAIN_TOKEN = "CX_DOMAIN";
+
 export type DomainSchema = Pick<Domain, "host" | "port" | "serviceName"> & {
 	path?: string;
 };
