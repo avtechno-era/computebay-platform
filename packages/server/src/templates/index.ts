@@ -9,7 +9,22 @@ import { fetchTemplateFiles } from "./github";
 export interface Schema {
 	serverIp: string;
 	projectName: string;
+	// ComputeBay: when the appliance owns a wildcard domain, generated hosts (and
+	// `${domain}` env tokens) ride it instead of the public `sslip.io` fallback.
+	wildcardDomain?: string | null;
 }
+
+/**
+ * ComputeBay: token resolving to the appliance's own base domain.
+ *
+ * Catalog authors write `${CX_DOMAIN}` in either the compose file or an env
+ * value and get the same bare domain in both, but via two different engines:
+ * env values are substituted at install time by `processValue`, while the
+ * compose file is passed through untouched and substituted at deploy time by
+ * Docker Compose itself, from the `CX_DOMAIN` entry written into the stack's
+ * `.env`. Both paths must stay in sync, so the name lives here.
+ */
+export const CX_DOMAIN_TOKEN = "CX_DOMAIN";
 
 export type DomainSchema = Pick<Domain, "host" | "port" | "serviceName"> & {
 	path?: string;
@@ -33,8 +48,18 @@ export interface GenerateJWTOptions {
 export const generateRandomDomain = ({
 	serverIp,
 	projectName,
+	wildcardDomain,
 }: Schema): string => {
 	const hash = randomBytes(3).toString("hex");
+
+	// ComputeBay appliance with a wildcard domain: mint `<name>-<hash>.<domain>`
+	// under the appliance's own domain rather than the `sslip.io` fallback.
+	if (wildcardDomain) {
+		const label =
+			projectName.length > 40 ? projectName.substring(0, 40) : projectName;
+		return `${label}-${hash}.${wildcardDomain}`;
+	}
+
 	const slugIp = serverIp.replaceAll(".", "-").replaceAll(":", "-");
 
 	// Domain labels have a max length of 63 characters

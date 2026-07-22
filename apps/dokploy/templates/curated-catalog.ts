@@ -38,6 +38,17 @@ export interface CuratedApp {
 	source?: "computebay" | "dokploy";
 	/** Partner-endorsed badge (FM-sourced entries may set this). */
 	partner?: boolean;
+	/**
+	 * Author-defined Traefik bindings (computebay entries only). The install flow
+	 * resolves each `subdomain` to `<subdomain>.<wildcardDomain>`; the customer may
+	 * override the subdomain but not the service/port.
+	 */
+	domains?: Array<{
+		serviceName: string;
+		subdomain: string;
+		port: number;
+		path?: string;
+	}>;
 }
 
 export interface PartnerApp extends CuratedApp {

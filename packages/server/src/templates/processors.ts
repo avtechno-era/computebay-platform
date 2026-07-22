@@ -1,6 +1,7 @@
 import { faker } from "@faker-js/faker";
 import type { Schema } from "./index";
 import {
+	CX_DOMAIN_TOKEN,
 	generateBase64,
 	generateHash,
 	generateJwt,
@@ -76,6 +77,17 @@ export function processValue(
 		// Handle utility functions
 		if (varName === "domain") {
 			return generateRandomDomain(schema);
+		}
+
+		// ComputeBay: the appliance's own base domain, shared by every service on
+		// the appliance. Unlike `${domain}` — which mints a *fresh random*
+		// subdomain on each call — this resolves to the same bare domain every
+		// time, so authors can build stable URLs like `https://api.${CX_DOMAIN}`.
+		// Uppercase by convention: it is also a real Docker Compose variable (see
+		// `getCreateEnvFileCommand`), which is what makes the same token work
+		// inside the compose file itself.
+		if (varName === CX_DOMAIN_TOKEN) {
+			return schema.wildcardDomain ?? "";
 		}
 
 		if (varName === "base64") {

@@ -34,6 +34,7 @@ import {
 } from "@dokploy/server";
 import { db } from "@dokploy/server/db";
 import { fetchComputebayTemplate } from "@dokploy/server/services/computebay-catalog";
+import { getComputeBayConfig } from "@dokploy/server/services/computebay-config";
 import { canEditDeployGitSource } from "@dokploy/server/services/git-provider";
 import {
 	addNewService,
@@ -41,6 +42,7 @@ import {
 	checkServicePermissionAndAccess,
 	findMemberByUserId,
 } from "@dokploy/server/services/permission";
+import { CX_DOMAIN_TOKEN } from "@dokploy/server/templates";
 import {
 	type CompleteTemplate,
 	fetchTemplateFiles,
@@ -584,6 +586,16 @@ export const composeRouter = createTRPCRouter({
 				// "computebay" installs from the Fleet Manager catalog registry
 				// (curated apps); the default reads the public Dokploy registry.
 				source: z.enum(["dokploy", "computebay"]).optional(),
+				// Per-service subdomain overrides the customer chose at install
+				// (computebay only). The port stays fixed by the app author.
+				domainOverrides: z
+					.array(
+						z.object({
+							serviceName: z.string().min(1),
+							subdomain: z.string().min(1),
+						}),
+					)
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -640,15 +652,77 @@ export const composeRouter = createTRPCRouter({
 					...template.config.variables,
 				},
 			};
+
+			// ComputeBay curated installs ride the appliance's own wildcard domain:
+			// hosts become `<subdomain>.<wildcardDomain>` (the author's subdomain, or
+			// the customer's override) instead of the public sslip.io fallback, and
+			// `${domain}` env tokens resolve under the same domain.
+			const wildcardDomain =
+				input.source === "computebay"
+					? ((await getComputeBayConfig()).wildcardDomain ?? null)
+					: null;
+
 			const generate = processTemplate(config, {
 				serverIp: serverIp,
 				projectName: projectName,
+				wildcardDomain,
 			});
+
+			// For curated installs, resolve each authored domain to its final host
+			// (`<subdomain>.<wildcardDomain>`), applying the per-service override. The
+			// port stays exactly as the author published it.
+			const finalDomains =
+				input.source === "computebay" && wildcardDomain
+					? (template.config.config?.domains ?? []).map((domain) => {
+							const override = input.domainOverrides?.find(
+								(o) => o.serviceName === domain.serviceName,
+							);
+							const subdomain = (
+								override?.subdomain ??
+								domain.subdomain ??
+								""
+							).trim();
+							return {
+								serviceName: domain.serviceName,
+								port: domain.port,
+								...(domain.path ? { path: domain.path } : {}),
+								host: subdomain
+									? `${subdomain}.${wildcardDomain}`
+									: `${projectName}.${wildcardDomain}`,
+							};
+						})
+					: generate.domains;
+
+			// ComputeBay: `${CX_DOMAIN}` is the appliance's base domain. In env values
+			// it was already substituted above by `processTemplate`; in the compose
+			// file it survives untouched (the compose is passed through raw) and is
+			// substituted at deploy time by Docker Compose, which reads the `.env`
+			// we write beside the stack. Publishing it as a real env var is what
+			// wires up that second path.
+			//
+			// Without a wildcard domain — the upstream "Advanced" template path, or
+			// an appliance whose tunnel isn't provisioned yet — Compose would expand
+			// the token to an empty string and only warn, deploying an app with
+			// silently broken URLs. Fail loudly instead.
+			const usesCxDomain = template.dockerCompose?.includes(
+				`\${${CX_DOMAIN_TOKEN}}`,
+			);
+			if (usesCxDomain && !wildcardDomain) {
+				throw new TRPCError({
+					code: "PRECONDITION_FAILED",
+					message: `This app's compose file uses \${${CX_DOMAIN_TOKEN}}, but this appliance has no domain yet. Finish activation so the appliance gets its domain, then install again.`,
+				});
+			}
+
+			const envs = [...(generate.envs ?? [])];
+			if (wildcardDomain) {
+				envs.unshift(`${CX_DOMAIN_TOKEN}=${wildcardDomain}`);
+			}
 
 			const compose = await createComposeByTemplate({
 				...input,
 				composeFile: template.dockerCompose,
-				env: generate.envs?.join("\n"),
+				env: envs.join("\n"),
 				serverId: input.serverId,
 				name: input.id,
 				sourceType: "raw",
@@ -671,8 +745,8 @@ export const composeRouter = createTRPCRouter({
 				}
 			}
 
-			if (generate.domains && generate.domains?.length > 0) {
-				for (const domain of generate.domains) {
+			if (finalDomains && finalDomains?.length > 0) {
+				for (const domain of finalDomains) {
 					await createDomain({
 						...domain,
 						domainType: "compose",

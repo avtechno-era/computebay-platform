@@ -27,6 +27,9 @@ export interface CompleteTemplate {
 			port: number;
 			path?: string;
 			host?: string;
+			// ComputeBay: author's subdomain label, resolved at install to
+			// `<subdomain>.<wildcardDomain>` (see compose.deployTemplate).
+			subdomain?: string;
 		}>;
 		env: Record<string, string>;
 		mounts?: Array<{

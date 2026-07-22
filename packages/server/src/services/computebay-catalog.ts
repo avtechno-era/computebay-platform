@@ -37,6 +37,12 @@ export interface ComputeBayCatalogApp {
 	partner: boolean;
 	vendor?: string;
 	source: "computebay";
+	domains: Array<{
+		serviceName: string;
+		subdomain: string;
+		port: number;
+		path?: string;
+	}>;
 }
 
 // The full FM-native artifact returned for a single entry (install path).
@@ -50,7 +56,12 @@ interface FmArtifact {
 	compose: string;
 	variables?: Record<string, string>;
 	env?: Record<string, string>;
-	domains?: Array<{ serviceName: string; port: number; path?: string }>;
+	domains?: Array<{
+		serviceName: string;
+		subdomain: string;
+		port: number;
+		path?: string;
+	}>;
 	mounts?: Array<{ filePath: string; content: string }>;
 	isolated?: boolean;
 }
@@ -111,6 +122,14 @@ export const fetchComputebayCatalog = async (): Promise<
 		partner: !!a.partner,
 		vendor: a.vendor ?? undefined,
 		source: "computebay" as const,
+		domains: Array.isArray(a.domains)
+			? a.domains.map((d: any) => ({
+					serviceName: String(d.serviceName ?? ""),
+					subdomain: String(d.subdomain ?? ""),
+					port: Number(d.port ?? 0),
+					...(d.path ? { path: String(d.path) } : {}),
+				}))
+			: [],
 	}));
 };
 
@@ -144,9 +163,14 @@ export const fetchComputebayTemplate = async (
 		variables: app.variables ?? {},
 		config: {
 			isolated: app.isolated,
+			// `subdomain` carries the author's label; deployTemplate resolves it to
+			// `<subdomain>.<appliance-wildcard-domain>` at install, honoring any
+			// per-service subdomain override the customer chose. `host` is left
+			// unset so the no-wildcard fallback still generates a valid host.
 			domains: (app.domains ?? []).map((d) => ({
 				serviceName: d.serviceName,
 				port: d.port,
+				subdomain: d.subdomain,
 				...(d.path ? { path: d.path } : {}),
 			})),
 			env: app.env ?? {},
